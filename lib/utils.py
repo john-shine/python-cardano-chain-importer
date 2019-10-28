@@ -3,6 +3,7 @@
 # import bs58 from 'bs58'
 # import blake from 'blakejs'
 import base58
+import json
 from cbor import cbor
 from config import config
 
@@ -100,10 +101,10 @@ def select_cbor_encoder(outputs):
 
 def pack_raw_txId_and_body(decodedTxBody):
     if not decodedTxBody:
-        raise Exception('Cannot decode inputs from undefined transaction!')
+        raise Exception('can not decode empty transaction!')
 
     try:
-        [inputs, outputs, attributes] = decoded_tx_to_base(decodedTxBody)
+        inputs, outputs, attributes = decoded_tx_to_base(decodedTxBody)
         cborEncoder = select_cbor_encoder(outputs)
         enc = cborEncoder.encode([
             CborIndefiniteLengthArray(inputs, cborEncoder),
@@ -114,11 +115,11 @@ def pack_raw_txId_and_body(decodedTxBody):
         txBody = enc.toString('hex')
         return [txId, txBody]
     except Exception as e:
-        raise Exception('Failed to convert raw transaction to ID! ${JSON.stringify(e)}')
+        raise Exception(f'fail to convert raw transaction to ID! {str(e)}')
 
 
 def raw_tx_to_obj(tx: list, extraData: dict):
-    [[tx_inputs, tx_outputs], tx_witnesses] = tx
+    tx_inputs, tx_outputs, tx_witnesses = tx[0][0], tx[0][1], tx[1]
     txId, txBody = pack_raw_txId_and_body(tx)
     inputs, outputs, witnesses = [], [], []
     for inp in tx_inputs:

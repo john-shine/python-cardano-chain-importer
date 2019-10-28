@@ -16,24 +16,19 @@
 # import { TX_STATUS, TxType } from '../blockchain'
 from lib.logger import get_logger
 from lib import utils
-from constants.tx import TX_STATUS
+from constants.tx import *
 from models.http_bridge import HttpBridge
 from db import DB
 from cbor import cbor
 from datetime import datetime
 import json
 import base58
+import base64
 from tornado.web import RequestHandler
 from models.network import Network
 
 
 class Routers:
-
-    def __init__(self):
-        self.logger = get_logger('routers')
-        self.data_provider = HttpBridge()
-        self.db = DB()
-        self.expected_network_magic = Network.network_magic
 
     def __call__(self):
         return [
@@ -41,6 +36,12 @@ class Routers:
         ]
 
     class SignHandler(RequestHandler):
+
+        def initialize(self):
+            self.logger = get_logger('routers')
+            self.data_provider = HttpBridge()
+            self.db = DB()
+            self.expected_network_magic = Network.network_magic
 
         def set_default_headers(self):
             self.set_header("Content-Type", 'application/json')
@@ -104,13 +105,13 @@ class Routers:
             next()
 
         def parse_raw_tx(self, tx_payload: str):
-            self.logger.debug('txs.parse_raw_tx ${tx_payload}')
+            self.logger.info(f'parse raw_tx: {tx_payload}')
             now = datetime.utcnow()
-            tx = cbor.loads(bytes.fromhex(tx_payload, 'base64'))
+            tx = cbor.loads(base64.b64decode(tx_payload))
             tx_obj = utils.raw_tx_to_obj(tx, {
                 'txTime': now,
                 'txOrdinal': None,
-                'status': TX_STATUS.TX_PENDING_STATUS,
+                'status': TX_PENDING_STATUS,
                 'blockNum': None,
                 'blockHash': None,
             })
