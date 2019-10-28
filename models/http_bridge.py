@@ -10,13 +10,14 @@
 from tornado.httpclient import AsyncHTTPClient
 from urllib.parse import urljoin
 from models.network import Network
+from models.parser import Parser
 
 
 class HttpBridge:
 
-    def __init__(self, parser):
+    def __init__(self):
         self.network_url = Network().network_url
-        self.parser = parser
+        self.parser = Parser()
         self.client = AsyncHTTPClient()
 
     async def get(self, path: str, params={}):

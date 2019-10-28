@@ -24,25 +24,46 @@ from datetime import datetime
 import json
 import base58
 from tornado.web import RequestHandler
+from models.network import Network
 
 
 class Routers:
 
-    def __init__(self, networkConfig):
+    def __init__(self):
         self.logger = get_logger('routers')
         self.data_provider = HttpBridge()
         self.db = DB()
-        self.expected_network_magic = networkConfig.network_magic()
+        self.expected_network_magic = Network.network_magic
 
     def __call__(self):
         return [
-            url('/api/txs/signed', self.signed)
+            (r'/api/txs/signed', self.SignHandler)
         ]
 
     class SignHandler(RequestHandler):
 
-        async def signed(self, request, resp, next):
-            signed_tx = request['body']['signedTx']
+        def set_default_headers(self):
+            self.set_header("Content-Type", 'application/json')
+
+        def fail(self, message):
+            return self.write(json.dumps({'success': False, 'message': message}))
+
+        def success(self):
+            return self.write(json.dumps({'success': True, 'message': 'OK'}))
+
+        async def post(self):
+            try:
+                body = json.loads(self.request.body)
+            except json.decoder.JSONDecodeError:
+                return self.fail('invalid request')
+
+            if not isinstance(body, dict):
+                return self.fail('invalid request')
+
+            signed_tx = body.get('signedTx')
+            if not signed_tx:
+                return self.fail('signedTx is empty')
+
             tx_obj = self.parse_raw_tx(signed_tx)
             local_validation_error = await self.validate_tx(tx_obj)
             if (local_validation_error):

@@ -151,7 +151,7 @@ def header_to_id(header, type: int):
     return blake.blake2bHex(headerData, None, 32)
 
 def get_network_config(network_name):
-    network = config.get('networks', {}).get(networkName)
+    network = config.get('networks', {}).get(network_name)
     if not network:
         return None
 

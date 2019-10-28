@@ -8,10 +8,13 @@ from routers import Routers
 from tornado.web import Application
 from tornado.ioloop import IOLoop
 import argparse
+from tornado.log import enable_pretty_logging
+enable_pretty_logging()
 
+
+logger = get_logger('server')
 
 async def main(loop):
-    logger = get_logger('server')
     db = DB()
     http_bridge = HttpBridge()
     is_loaded = db.is_genesis_loaded()
@@ -44,9 +47,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='cardano block chain data importer')
     parser.add_argument('--port', type=int, default=9090, help='server listen port')
     args = parser.parse_args()
+    routers = Routers()
 
-    app = Application()
+    app = Application(routers())
     app.listen(args.port)
+    logger.info('server is listen on port: %d', args.port)
 
     loop = IOLoop.current()
     loop.start()

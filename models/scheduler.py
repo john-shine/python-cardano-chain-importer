@@ -1,7 +1,7 @@
 import asyncio
 from time import time
 from db import DB
-from operater import itemgetter
+from operator import itemgetter
 from lib.logger import get_logger
 from models.http_bridge import HttpBridge
 from constants.network import *

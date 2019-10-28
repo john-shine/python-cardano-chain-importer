@@ -1,2 +1,4 @@
 psycopg2
 tornado
+base58
+cbor
