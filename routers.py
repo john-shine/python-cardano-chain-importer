@@ -44,9 +44,9 @@ class Routers:
     def success(cls, self):
         return self.write(json.dumps({'success': True, 'message': 'OK'}))
 
-    class SignHandler():
+    class SignHandler(RequestHandler):
 
-        def __init__(self):
+        def initialize(self):
             self.logger = get_logger('routers')
             self.http_bridge = HttpBridge()
             self.db = DB()
@@ -65,16 +65,20 @@ class Routers:
                 return Routers.fail(self, 'invalid request')
 
             tx_payload = body.get('signedTx')
-            tx_payload = 'goOfggDYGFgkglggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/5+CgtgYWCGDWBz9PnIoa40sFCzLwMLn+UVjOaRTzU6Wtf50npvsoAAa/moZtxkD6P+ggYIA2BhYhYJYQPRJ3yEtBixg/AmPLmVQ5qvdocgI7+LNE4rnE24YiW4GKxsT8AM8LDke8p7xizOMEW9eB5OFZigGi182w8yCErJYQHepDmtCsTSt2mcv48lddbB3EZtorHq3TY8D2n55j2gRa95oV4FvYNMG40zrpm3nGM0AtwMYJgEs6Ys3yAn3iAw='
             if not tx_payload:
                 return Routers.fail(self, 'request signedTx is empty')
 
             tx_obj = self.parse_raw_tx(tx_payload)
             validate_error = await self.validate_tx(tx_obj)
             if validate_error:
-                self.logger.error('local tx validation failed: ', validate_error)
+                self.logger.error('local tx validation failed: %s', validate_error)
 
-            resp = await self.http_bridge.post_signed_tx(body)
+            try:            
+                resp = await self.http_bridge.post_signed_tx(json.dumps(body))
+            except Exception as e:
+                self.logger.exception(e)
+                return Routers.fail(self, 'send tx to bridge error')
+
             self.logger.debug('send tx response: %s', resp)
             try:
                 if resp.status == 200:
@@ -129,6 +133,7 @@ class Routers:
 
                 return None
             except Exception as e:
+                self.logger.exception(e)
                 return str(e)
 
         async def validate_tx_witnesses(self, tx_id, inputs, witnesses):

@@ -14,8 +14,8 @@ class Network:
 
     def __init__(self):
         self._network_name = config.get('defaultNetwork')
-        network = get_network_config(self.network_name)
-        self._network_url = urljoin(network['bridgeUrl'], self.network_name)
+        network = get_network_config(self._network_name)
+        self._network_url = urljoin(network['bridgeUrl'], self._network_name) + '/'
         self._genesis_hash = network['genesis']
         self._start_time = network['startTime']
         self._network_magic = network['networkMagic']

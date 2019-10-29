@@ -219,8 +219,8 @@ class DB:
         if not tx_hashes:
             return []
 
-        query = 'select from txs where hash in ?'
-        rows = await self.conn.fetch(query, ', '.join(tx_hashes))
+        sql = 'select from txs where hash in ?'
+        rows = await self.conn.execute(sql, ', '.join(tx_hashes)).fetchall()
         res = []
         for row in rows:
             res[row['hash']] = (row['address'], row['amount'])
