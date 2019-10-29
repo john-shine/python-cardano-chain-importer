@@ -32,14 +32,14 @@ class DB:
             self._conn.close()
 
     async def store_utxos(self, utxos):
-        sql = 'insert into utxos set ...'
-        self.logger.info('store utxos', sql, utxos)
-        await self.conn.execute(sql, utxos)
+        sql = 'insert into utxos set ' + '=?, '.join(utxos.keys()) + '=?'
+        self.logger.info('store utxos: ', sql)
+        await self.conn.execute(sql, utxos.values())
         return True
 
     async def get_best_blockNum(self):
         sql = 'select block_hash, block_height, epoch, slot from blocks order by block_height desc limit 1'
-        row = await self.conn.fetchone(sql)
+        row = await self.conn.execute(sql).fetchone()
         if row:
             return {
                 'hash': row['block_hash'],
@@ -72,10 +72,10 @@ class DB:
     async def delete_invalid_utxos(self, block_height: int):
         self.logger.info('delete invalid utxos above block height: %s', block_height)
         sql = 'delete from utxos where block_num > %s'
-        await self.conn.execute(sql, (block_height))
+        await self.conn.execute(sql, (block_height, ))
 
         sql = 'delete from utxos_backup where block_num > %s'
-        await self.conn.execute(sql, (block_height))
+        await self.conn.execute(sql, (block_height, ))
         return True
 
     async def rollback_utxo_backup(self, block_height: int):
@@ -106,7 +106,7 @@ class DB:
     async def rollback_block_history(self, block_height: int):
         self.logger.info('rollback block_history to block height: %s', block_height)
 
-        await self.conn.query(' delete from blocks where block_height > %s', (block_height))
+        await self.conn.execute('delete from blocks where block_height > %s', (block_height, ))
         return True
 
     async def store_block(self, block):
@@ -147,7 +147,7 @@ class DB:
 
         query = 'insert tx_addresses on conflict set ...'
         try:
-            await self.conn.query(query)
+            await self.conn.execute(query)
         except Exception as e:
             self.logger.exception(f'addresses for ${tx_id} already stored')
             return False
@@ -194,14 +194,18 @@ class DB:
         #     .field('block_num')
         #     .field('${deleted_blockNum}', 'deleted_block_num'))
         #   .toString()
-        query = ''
-        self.logger.debug('backup and remove utxos: %s', query)
-        await self.conn.query(query)
+        sql = ''
+        self.logger.info('backup and remove utxos: %s', sql)
+        await self.conn.execute(sql)
+
         return True
 
     async def get_utxos(self, utxo_ids: list):
-        sql = 'select * from utxos where utxo_id in ($1)'
-        rows = await self.conn.query(sql, utxo_ids)
+        if not utxo_ids:
+            return []
+
+        sql = 'select * from utxos where utxo_id in (%s)'
+        rows = await self.conn.query(sql, ', '.join(utxo_ids))
 
         return [{
           'address': row['receiver'],
@@ -211,27 +215,28 @@ class DB:
           'txHash': row['tx_hash'],
         } for row in rows]
 
-    async def get_outputs_for_tx_hashes(self, tx_hashes: list): 
+    async def get_outputs_for_tx_hashes(self, tx_hashes: list):
+        if not tx_hashes:
+            return []
+
         query = 'select from txs where hash in ?'
-        rows = await self.conn.fetch(query, tx_hashes)
-        pass
-        # return db_res.rows.reduce((res, row) => {
-        #   arr = _.map(_.zip(row.outputs_address, row.outputs_amount),
-        #     ([address, amount]) => ({ address, amount }))
-        #   res[row.hash] = arr
-        #   return res
-        # }, {})
+        rows = await self.conn.fetch(query, ', '.join(tx_hashes))
+        res = []
+        for row in rows:
+            res[row['hash']] = (row['address'], row['amount'])
+        
+        return res
 
     async def is_genesis_loaded(self):
         # Check whether utxo and blocks tables are empty.
         query = 'select (select count(*) from utxos) + (select count(*) from blocks) as cnt'
-        count = await self.conn.fetchone(query)
+        count = await self.conn.execute(query).fetchone()
         return count['cnt'] > 0
 
     async def store_tx(self, tx: dict, tx_utxos: dict):
         inputs, outputs, tx_id, blockNum, block_hash = tx['inputs'], tx['outputs'], tx['id'], tx['blockNum'], tx['block_hash']
         input_utxos = None
-        self.logger.debug('store tx: %s', tx_utxos)
+        self.logger.info('store tx: %s', tx_utxos)
         tx_status = tx['status'] if tx['status'] else TX_SUCCESS_STATUS
         if not tx_utxos:
           input_utxo_ids = []
@@ -273,11 +278,10 @@ class DB:
         #     tx_ordinal: tx.txOrdinal,
         #   })
         #   .toString()
+        sql = 'insert into txs on conflict hash set block_num=?, block_hash=?, time=?, tx_state=?, last_update=?, tx_ordinal=?'
 
-        query = 'insert into txs on conflict hash set block_num=?, block_hash=?, time=?, tx_state=?, last_update=?, tx_ordinal=?'
-
-        self.logger.debug('insert into txs: %s', query)
-        await self.conn.query(query)
+        self.logger.info('insert into txs: %s', query)
+        await self.conn.execute(sql)
         await self.store_tx_addresses(
             tx_id,
             list(set(input_addresses + output_addresses)),
@@ -285,7 +289,7 @@ class DB:
 
     async def store_block_txs(self, block):
         block_hash, epoch, slot, txs = block['hash'], block['epoch'], block['slot'], block['txs']
-        self.logger.debug(f"store block txs (${epoch}/${slot}, ${block_hash}, ${block['height']})")
+        self.logger.info(f"store block txs ({epoch}/{slot}, {block_hash}, {block['height']})")
         new_utxos = utils.get_txs_utxos(txs)
         block_utxos = []
         required_inputs = []
@@ -306,7 +310,7 @@ class DB:
                     del new_utxos[utxo_id]
 
         required_utxo_ids = [utils.get_utxo_id(inp) for inp in required_inputs]
-        self.logger.debug('store block txs required utxo', required_utxo_ids)
+        self.logger.info('store block txs required utxo', required_utxo_ids)
         available_utxos = await self.get_utxos(required_utxo_ids)
         all_utxo_map = available_utxos + block_utxos
         all_utxo_map.sort(key=lambda r: r['id'])
@@ -321,10 +325,10 @@ class DB:
                     utxos.append(all_utxo_map.get(utxo_id))
 
             if len(utxos) != len(tx['inputs']):
-                raise Exception(f'failed to query input utxos for tx ${tx.id} for inputs: ${json.dumps(tx.inputs)} all utxos: ${json.dumps(all_utxo_map)}'
+                raise Exception(f'failed to query input utxos for tx {tx["id"]} for inputs: {json.dumps(tx["inputs"])} all utxos: {json.dumps(all_utxo_map)}'
                 )
 
-            self.logger.debug('store block txs: %s', tx['id'])
+            self.logger.info('store block txs: %s', tx['id'])
             await self.store_tx(tx, utxos)
 
         await self.store_utxos(new_utxos.values())
