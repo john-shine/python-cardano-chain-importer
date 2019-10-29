@@ -213,7 +213,7 @@ class DB:
 
     async def get_outputs_for_tx_hashes(self, tx_hashes: list): 
         query = 'select from txs where hash in ?'
-        rows = await self.conn.fetch(query, tx_hashes)
+        rows = await self.conn.fetchall(query, tx_hashes)
         pass
         # return db_res.rows.reduce((res, row) => {
         #   arr = _.map(_.zip(row.outputs_address, row.outputs_amount),
