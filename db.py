@@ -24,8 +24,9 @@ class DB:
                 port=config['db']['port'],
                 connect_timeout=config['db']['timeout']
             )
+            self._conn.autocommit(True)
 
-        return self._conn
+        return self._conn.cursor()
 
     def close(self):
         if self._conn:
@@ -34,12 +35,16 @@ class DB:
     async def store_utxos(self, utxos):
         sql = 'insert into utxos set ' + '=?, '.join(utxos.keys()) + '=?'
         self.logger.info('store utxos: ', sql)
-        await self.conn.execute(sql, utxos.values())
+        with self.conn as cursor:
+            await cursor.execute(sql, utxos.values())
+
         return True
 
     async def get_best_blockNum(self):
-        sql = 'select block_hash, block_height, epoch, slot from blocks order by block_height desc limit 1'
-        row = await self.conn.execute(sql).fetchone()
+        sql = 'SELECT block_hash, block_height, epoch, slot FROM blocks ORDER BY block_height DESC LIMIT 1'
+        with self.conn as cursor:
+            row = await cursor.execute(sql).fetchone()
+
         if row:
             return {
                 'hash': row['block_hash'],
@@ -51,74 +56,65 @@ class DB:
         return {'height': 0, 'epoch': 0, 'hash': None, 'slot': None}
 
     async def update_best_blockNum(self, best_blockNum: int):
-        await self.conn.execute('update bestblock set best_block_num=%s', (best_blockNum))
+        with self.conn as cursor:
+            await cursor.execute('update bestblock set best_block_num=%s', (best_blockNum))
+
         return True
 
     async def rollback_transactions(self, block_height: int):
-        self.logger.info('rollbackTransactions to block ${block_height}')
-        # sql = Q.sql.update()
-        #   .table('txs')
-        #   .set('tx_state', TX_STATUS.TX_PENDING_STATUS)
-        #   .set('block_num', null)
-        #   .set('block_hash', null)
-        #   .set('time', null)
-        #   .set('last_update', 'NOW()', { dontQuote: true })
-        #   .where('block_num > ?', block_height)
-        #   .toString()
-        sql = 'update txs set tx_state=%s, block_num=%s, time=%s, last_update=%s where block_num>%s'
-        await self.conn.execute(sql, (TX_PENDING_STATUS, None, None, None, datetime.now(), block_height))
+        self.logger.info('rollbackTransactions to block: %s', block_height)
+        sql = 'UPDATE txs '\
+              'SET tx_state=%s, block_num=%s, time=%s, last_update=%s '\
+              'WHERE block_num > %s'
+        with self.conn as cursor:
+            await cursor.execute(sql, (TX_PENDING_STATUS, None, None, None, datetime.now(), block_height))
+
         return True
 
     async def delete_invalid_utxos(self, block_height: int):
         self.logger.info('delete invalid utxos above block height: %s', block_height)
-        sql = 'delete from utxos where block_num > %s'
-        await self.conn.execute(sql, (block_height, ))
+        sql = 'delete FROM utxos where block_num > %s'
+        with self.conn as cursor:
+            await cursor.execute(sql, (block_height, ))
 
-        sql = 'delete from utxos_backup where block_num > %s'
-        await self.conn.execute(sql, (block_height, ))
+        sql = 'delete FROM utxos_backup where block_num > %s'
+        with self.conn as cursor:
+            await cursor.execute(sql, (block_height, ))
+
         return True
 
     async def rollback_utxo_backup(self, block_height: int):
         self.logger.info('rollback utxo_backup to block height: %s', block_height)
         await self.delete_invalid_utxos(block_height)
-        # sql = Q.sql.insert()
-        #   .into('utxos')
-        #   .with('moved_utxos',
-        #     Q.sql.delete()
-        #       .from('utxos_backup')
-        #       .where('block_num < ?', block_height)
-        #       .where('deleted_block_num > ?', block_height)
-        #       .returning('*'))
-        #   .fromQuery(['utxo_id', 'tx_hash', 'tx_index', 'receiver', 'amount', 'block_num'],
-        #     Q.sql.select().from('moved_utxos')
-        #       .field('utxo_id')
-        #       .field('tx_hash')
-        #       .field('tx_index')
-        #       .field('receiver')
-        #       .field('amount')
-        #       .field('block_num'))
-        #   .toString()
 
-        sql = "insert into utxos values (select 'utxo_id', 'tx_hash', 'tx_index', 'receiver', 'amount', 'block_num' from moved_utxos)"
-        db_res = await self.conn.execute(sql)
+        sql = 'WITH moved_utxos AS (DELETE FROM utxos_backup WHERE block_num < %s AND delete_block_num > %s RETURNING *) INSERT INTO utxos SELECT * FROM moved_utxos'
+        with self.conn as cursor:
+            await cursor.execute(sql, (block_height, block_height))
+
         return True
 
     async def rollback_block_history(self, block_height: int):
         self.logger.info('rollback block_history to block height: %s', block_height)
 
-        await self.conn.execute('delete from blocks where block_height > %s', (block_height, ))
+        with self.conn as cursor:
+            await cursor.execute('delete FROM blocks where block_height > %s', (block_height, ))
+
         return True
 
     async def store_block(self, block):
         if not block:
             return False
 
-        sql = 'insert blocks set ' + '=?, '.join(block.keys()) + '=?'
+        sql = 'INSERT INTO blocks ({}) VALUES ({})'.format(
+            ', '.join(block.keys()), 
+            ', '.join(['%s'] * len(block))
+        )
         try:
-            await self.conn.execute(sql, block.values())
+            with self.conn as cursor:
+                await cursor.execute(sql, block.values())
         except Exception as e:
-          self.logger.exception('Error occur on block: %s', block)
-          return False
+            self.logger.exception('error occur on block: %s', block)
+            return False
 
         return True
 
@@ -126,16 +122,21 @@ class DB:
         if not blocks:
             return False
 
+        sql = 'INSERT INTO blocks VALUES '
         blocks_data = []
         for block in blocks:
-            blocks_data.append(block.serialize())
+            sql += '({}), '.format(
+                ', '.join(['%s'] * len(block))
+            )
+            blocks_data.append(block.values())
+        sql = sql.rstrip(', ')
 
-        sql = 'insert blocks set ' + '=?, '.join(block.keys()) + '=?'
         try:
-          await self.conn.execute(sql, block.values())
+            with self.conn as cursor:
+                await cursor.execute(sql, blocks_data)
         except Exception as e:
-          self.logger.exception('Error occur on block', blocks)
-          return False
+            self.logger.exception('error occur on blocks: %s', blocks)
+            return False
 
         return True
 
@@ -147,9 +148,10 @@ class DB:
 
         query = 'insert tx_addresses on conflict set ...'
         try:
-            await self.conn.execute(query)
+            with self.conn as cursor:
+                await cursor.execute(query)
         except Exception as e:
-            self.logger.exception(f'addresses for ${tx_id} already stored')
+            self.logger.exception('addresses for %s already stored', tx_id)
             return False
 
         return True
@@ -168,35 +170,18 @@ class DB:
 
         await self.store_utxos(utxos_data)
 
-    async def backup_and_remove_utxos(self, utxo_ids: list, deleted_blockNum: int):
-        # query = Q.sql.insert()
-        #   .into('utxos_backup')
-        #   .with('moved_utxos',
-        #     Q.sql.delete()
-        #       .from('utxos')
-        #       .where('utxo_id IN ?', utxo_ids)
-        #       .returning('*'))
-        #   .fromQuery([
-        #     'utxo_id',
-        #     'tx_hash',
-        #     'tx_index',
-        #     'receiver',
-        #     'amount',
-        #     'block_num',
-        #     'deleted_block_num',
-        #   ],
-        #   Q.sql.select().from('moved_utxos')
-        #     .field('utxo_id')
-        #     .field('tx_hash')
-        #     .field('tx_index')
-        #     .field('receiver')
-        #     .field('amount')
-        #     .field('block_num')
-        #     .field('${deleted_blockNum}', 'deleted_block_num'))
-        #   .toString()
-        sql = ''
-        self.logger.info('backup and remove utxos: %s', sql)
-        await self.conn.execute(sql)
+    async def backup_and_remove_utxos(self, utxo_ids: list, deleted_block_num: int):
+        if not utxo_ids:
+            return False
+        
+        sql = 'WITH moved_utxos AS (DELETE FROM utxos WHERE utxo_id IN (%s)) '\
+              '  INSERT INTO utxos_backup '\
+              '  (utxo_id, tx_hash, tx_index, receiver, amount, block_num, deleted_block_num) '\
+              '  (SELECT utxo_id, tx_hash, tx_index, receiver, amount, block_num, %s AS deleted_block_num FROM moved_utxos)'
+        str_ids = ', '.join(utxo_ids)
+        with self.conn as cursor:
+            await cursor.execute(sql, (str_ids, deleted_block_num))
+            self.logger.info('backup and remove utxos: %s', str_ids)
 
         return True
 
@@ -204,8 +189,9 @@ class DB:
         if not utxo_ids:
             return []
 
-        sql = 'select * from utxos where utxo_id in (%s)'
-        rows = await self.conn.query(sql, ', '.join(utxo_ids))
+        sql = 'SELECT * FROM utxos WHERE utxo_id IN (%s)'
+        with self.conn as cursor:
+            rows = await cursor.query(sql, ', '.join(utxo_ids))
 
         return [{
           'address': row['receiver'],
@@ -219,8 +205,10 @@ class DB:
         if not tx_hashes:
             return []
 
-        sql = 'select from txs where hash in ?'
-        rows = await self.conn.execute(sql, ', '.join(tx_hashes)).fetchall()
+        sql = 'SELECT FROM txs where hash in ?'
+        with self.conn as cursor:
+            rows = await cursor.execute(sql, ', '.join(tx_hashes)).fetchall()
+
         res = []
         for row in rows:
             res[row['hash']] = (row['address'], row['amount'])
@@ -229,8 +217,10 @@ class DB:
 
     async def is_genesis_loaded(self):
         # Check whether utxo and blocks tables are empty.
-        query = 'select (select count(*) from utxos) + (select count(*) from blocks) as cnt'
-        count = await self.conn.execute(query).fetchone()
+        query = 'SELECT (SELECT count(*) FROM utxos) + (SELECT count(*) FROM blocks) as cnt'
+        with self.conn as cursor:
+            count = await cursor.execute(query).fetchone()
+
         return count['cnt'] > 0
 
     async def store_tx(self, tx: dict, tx_utxos: dict):
@@ -264,24 +254,25 @@ class DB:
             'tx_body': tx['txBody'],
             'tx_ordinal': tx['txOrdinal'],
             'time': tx['txTime'],
-            'last_update': tx['txTime']
+            'last_update': datetime.now()
         }
-        now = datetime.now()
 
-        # query = Q.TX_INSERT.setFields(tx_db_fields)
-        #   .onConflict('hash', {
-        #     block_num: blockNum,
-        #     block_hash: block_hash,
-        #     time: tx.txTime,
-        #     tx_state: txStatus,
-        #     last_update: now,
-        #     tx_ordinal: tx.txOrdinal,
-        #   })
-        #   .toString()
-        sql = 'insert into txs on conflict hash set block_num=?, block_hash=?, time=?, tx_state=?, last_update=?, tx_ordinal=?'
+        sql = 'INSERT INTO txs ({}) VALUSE ({}) '\
+              'ON CONFLICT (hash) DO UPDATE '\
+              'SET block_num=EXCLUDED.block_num, '\
+              '    block_hash=EXCLUDED.block_hash, '\
+              '    time=EXCLUDED.time, '\
+              '    tx_state=EXCLUDED.tx_state, '\
+              '    last_update=EXCLUDED.last_update, '\
+              '    tx_ordinal=EXCLUDED.tx_ordinal'.format(
+                ', '.join(tx_db_fields.keys()),
+                ', '.join(['%s'] * len(tx_db_fields))
+            )
 
-        self.logger.info('insert into txs: %s', query)
-        await self.conn.execute(sql)
+        self.logger.info('insert into txs: %s', sql)
+        with self.conn as cursor:
+            await cursor.execute(sql, (tx_db_fields.values(), ))
+
         await self.store_tx_addresses(
             tx_id,
             list(set(input_addresses + output_addresses)),
@@ -314,9 +305,7 @@ class DB:
         available_utxos = await self.get_utxos(required_utxo_ids)
         all_utxo_map = available_utxos + block_utxos
         all_utxo_map.sort(key=lambda r: r['id'])
-        # eslint-disable no-plusplus 
         for index in range(len(txs)):
-            # eslint-disable no-await-in-loop 
             tx = txs[index]
             utxos = []
             for inp in tx['inputs']:
