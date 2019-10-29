@@ -48,7 +48,7 @@ class Block:
           'isEBB': False,
           'upd': [upd1, upd2] if (upd1.length or upd2.length) else None,
           'height': chainDifficulty,
-          'txs': [utils.raw_tx_to_obj(tx, {
+          'txs': [utils.convert_raw_tx_to_obj(tx, {
               'txTime': blockTime,
               'txOrdinal': index,
               'blockNum': chainDifficulty,

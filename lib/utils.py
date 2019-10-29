@@ -2,10 +2,16 @@
 # import borc from 'borc'
 # import bs58 from 'bs58'
 # import blake from 'blakejs'
-import base58
 import json
+import base58
 from cbor import cbor
+from hashlib import blake2b
 from config import config
+
+
+def generate_utxo_hash(address):
+  data = base58.b58decode(address)
+  return blake2b(data).hexdigest()
 
 
 def get_utxo_id(input):
@@ -56,100 +62,81 @@ def get_txs_utxos(txs):
     return ret
 
 
-def decoded_tx_to_base(decodedTx):
-    if isinstance(decodedTx, list):
-        # eslint-disable-next-line default-case
-        if len(decodedTx) == 2:
-            signed = decodedTx
+def decoded_tx_to_base(decoded_tx):
+    if isinstance(decoded_tx, list):
+        if len(decoded_tx) == 2:
+            signed = decoded_tx
             return signed[0]
-        elif len(decodedTx) == 3:
-            base = decodedTx
+        elif len(decoded_tx) == 3:
+            base = decoded_tx
             return base
 
-    raise Exception(f'Unexpected decoded tx structure! ${json.dumps(decodedTx)}')
+    raise Exception('invalid decoded tx structure: %s' % decoded_tx)
 
 
 class CborIndefiniteLengthArray:
-    elements = []
-    cborEncoder = None
 
-    def __init__(self, elements, cborEncoder):
-        self.elements = elements
-        self.cborEncoder = cborEncoder
+    def __call__(self, elements):
+        ret = [bytes([0x9f])]
+        for e in elements:
+            ret.append(cbor.dumps(e))
+        ret.append(bytes([0xff]))
 
-    def encodeCBOR(self, encoder):
-        elements = [bytes([0x9f])]
-        for e in self.elements:
-            elements.append(self.cborEncoder.encode(e))
-        elements.append(bytes([0xff]))
-
-        return elements
+        return ret
 
 
-def select_cbor_encoder(outputs):
-    maxAddressLen = 0
-    for out in outputs:
-        taggedAddress = out['taggedAddress']
-        if len(taggedAddress['value']) > maxAddressLen:
-            maxAddressLen = len(taggedAddress['value'])
-    if maxAddressLen > 5000:
-        self.logger.info('>>> Output address len exceeds maximum, using alternative CborEncoder')
-        return borc
-
-    return cbor
-
-
-def pack_raw_txId_and_body(decodedTxBody):
-    if not decodedTxBody:
-        raise Exception('can not decode empty transaction!')
+def pack_raw_txid_and_body(decoded_tx_body):
+    if not decoded_tx_body:
+        raise Exception('can not decode empty tx!')
 
     try:
-        inputs, outputs, attributes = decoded_tx_to_base(decodedTxBody)
-        cborEncoder = select_cbor_encoder(outputs)
-        enc = cborEncoder.encode([
-            CborIndefiniteLengthArray(inputs, cborEncoder),
-            CborIndefiniteLengthArray(outputs, cborEncoder),
+        inputs, outputs, attributes = decoded_tx_to_base(decoded_tx_body)
+        cbor_indef_array = CborIndefiniteLengthArray()
+        enc = cbor.dumps([
+            cbor_indef_array(inputs),
+            cbor_indef_array(outputs),
             attributes,
         ])
-        txId = blake.blake2bHex(enc, None, 32)
-        txBody = enc.toString('hex')
-        return [txId, txBody]
+        tx_id = blake2b(enc, digest_size=32).hexdigest()
+        tx_body = enc.hex()
+
+        return [tx_id, tx_body]
     except Exception as e:
-        raise Exception(f'fail to convert raw transaction to ID! {str(e)}')
+        raise Exception(f'fail to convert raw tx to ID! {str(e)}')
 
 
-def raw_tx_to_obj(tx: list, extraData: dict):
+def convert_raw_tx_to_obj(tx: list, extraData: dict):
     tx_inputs, tx_outputs, tx_witnesses = tx[0][0], tx[0][1], tx[1]
-    txId, txBody = pack_raw_txId_and_body(tx)
+    tx_id, tx_body = pack_raw_txid_and_body(tx)
     inputs, outputs, witnesses = [], [], []
     for inp in tx_inputs:
         types, tagged = inp
-        inputTxId, idx = cbor.decode(tagged['value'])
+        inputTxId, idx = cbor.loads(tagged.value)
         inputs.append({'type': types, 'txId': inputTxId.hex(), 'idx': idx})
 
     for out in tx_outputs:
-        [address, value] = out
-        outputs.append({'address': base58.b58encode(cbor.encode(address)), 'value': value})
+        address, value = out
+        outputs.append({'address': base58.b58encode(cbor.dumps(address)), 'value': value})
 
-    for w in tx_witnesses:
-        [types, tagged] = w
-        witnesses.append({'type': types, 'sign': cbor.decode(tagged.value)})
+    for wit in tx_witnesses:
+        types, tagged = wit
+        witnesses.append({'type': types, 'sign': cbor.loads(tagged.value)})
 
     ret = {
-        'id': txId,
+        'id': tx_id,
         'inputs': inputs,
         'outputs': outputs,
         'witnesses': witnesses,
-        'txBody': txBody
+        'txBody': tx_body
     }
     ret.update(extraData)
 
     return ret
 
 
-def header_to_id(header, type: int):
-    headerData = cbor.loads([type, header])
-    return blake.blake2bHex(headerData, None, 32)
+def header_to_id(header, tx_type: int):
+    header_data = cbor.loads([tx_type, header])
+    return blake2b(header_data, digest_size=32).hexdigest()
 
 def get_network_config(network_name):
     network = config.get('networks', {}).get(network_name)

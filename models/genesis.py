@@ -16,14 +16,10 @@
 # import type { NetworkConfig } from '../interfaces'
 import base58
 from lib import utils
-from lib.logger import get_logger
+from hashlib import blake2b
 from models.network import Network
 from models.http_bridge import HttpBridge
-
-
-def generateUtxoHash(address):
-  data = base58.b58decode(address)
-  return BLAKE2b.digest(data).toString('hex')
+from lib.logger import get_logger
 
 
 class Genesis:
@@ -37,7 +33,7 @@ class Genesis:
         ret = []
         for non in nonAvvmBalances:
             amount, receiver = non
-            utxoHash = generateUtxoHash(receiver)
+            utxoHash = utils.generate_utxo_hash(receiver)
             ret.append(utils.structUtxo(receiver, amount, utxoHash))
 
         return ret
@@ -52,7 +48,7 @@ class Genesis:
             amount, publicRedeemKey = avv
             prk = Cardano.PublicRedeemKey.fromhex(base64url.decode(publicRedeemKey, 'hex'))
             receiver = prk.address(settings).to_base58()
-            utxoHash = generateUtxoHash(receiver)
+            utxoHash = utils.generate_utxo_hash(receiver)
             ret.append(utils.structUtxo(receiver, amount, utxoHash))
 
         return ret

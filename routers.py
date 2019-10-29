@@ -14,18 +14,19 @@
 # import SERVICE_IDENTIFIER from '../constants/identifiers'
 # import utils from '../blockchain/utils'
 # import { TX_STATUS, TxType } from '../blockchain'
-from lib.logger import get_logger
-from lib import utils
-from constants.tx import *
-from models.http_bridge import HttpBridge
-from db import DB
-from cbor import cbor
-from datetime import datetime
 import json
 import base58
 import base64
+from db import DB
+from cbor import cbor
+from constants.tx import *
+from datetime import datetime
+from lib import utils
+from hashlib import blake2b, sha3_256
+from lib.logger import get_logger
 from tornado.web import RequestHandler
 from models.network import Network
+from models.http_bridge import HttpBridge
 
 
 class Routers:
@@ -35,81 +36,77 @@ class Routers:
             (r'/api/txs/signed', self.SignHandler)
         ]
 
-    class SignHandler(RequestHandler):
+    @classmethod
+    def fail(cls, self, message):
+        return self.write(json.dumps({'success': False, 'message': message}))
 
-        def initialize(self):
+    @classmethod
+    def success(cls, self):
+        return self.write(json.dumps({'success': True, 'message': 'OK'}))
+
+    class SignHandler():
+
+        def __init__(self):
             self.logger = get_logger('routers')
-            self.data_provider = HttpBridge()
+            self.http_bridge = HttpBridge()
             self.db = DB()
-            self.expected_network_magic = Network.network_magic
+            self.expected_network_magic = Network().network_magic
 
         def set_default_headers(self):
             self.set_header("Content-Type", 'application/json')
-
-        def fail(self, message):
-            return self.write(json.dumps({'success': False, 'message': message}))
-
-        def success(self):
-            return self.write(json.dumps({'success': True, 'message': 'OK'}))
 
         async def post(self):
             try:
                 body = json.loads(self.request.body)
             except json.decoder.JSONDecodeError:
-                return self.fail('invalid request')
+                return Routers.fail(self, 'invalid request')
 
             if not isinstance(body, dict):
-                return self.fail('invalid request')
+                return Routers.fail(self, 'invalid request')
 
-            signed_tx = body.get('signedTx')
-            if not signed_tx:
-                return self.fail('signedTx is empty')
+            tx_payload = body.get('signedTx')
+            tx_payload = 'goOfggDYGFgkglggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/5+CgtgYWCGDWBz9PnIoa40sFCzLwMLn+UVjOaRTzU6Wtf50npvsoAAa/moZtxkD6P+ggYIA2BhYhYJYQPRJ3yEtBixg/AmPLmVQ5qvdocgI7+LNE4rnE24YiW4GKxsT8AM8LDke8p7xizOMEW9eB5OFZigGi182w8yCErJYQHepDmtCsTSt2mcv48lddbB3EZtorHq3TY8D2n55j2gRa95oV4FvYNMG40zrpm3nGM0AtwMYJgEs6Ys3yAn3iAw='
+            if not tx_payload:
+                return Routers.fail(self, 'request signedTx is empty')
 
-            tx_obj = self.parse_raw_tx(signed_tx)
-            local_validation_error = await self.validate_tx(tx_obj)
-            if (local_validation_error):
-              self.logger.error('Local tx validation failed: ${local_validation_error}')
-              self.logger.info('Proceeding to send tx to network for double-check')
+            tx_obj = self.parse_raw_tx(tx_payload)
+            validate_error = await self.validate_tx(tx_obj)
+            if validate_error:
+                self.logger.error('local tx validation failed: ', validate_error)
 
-            bridge_resp = await self.data_provider.post_signed_tx(req.rawBody)
-            self.logger.debug('TxController.index called', req.params, bridge_resp.status, '(${bridge_resp.statusText})', bridge_resp.data)
+            resp = await self.http_bridge.post_signed_tx(body)
+            self.logger.debug('send tx response: %s', resp)
             try:
-                if bridge_resp.status == 200:
-                    # store tx as pending
+                if resp.status == 200:
                     await self.store_tx_as_pending(tx_obj)
-                    if local_validation_error:
-                        # Network success but locally we failed validation - log local
-                        self.logger.warn('Local validation error, but network send succeeded!')
-            except Exception as err:
-                self.logger.error('Failed to store tx as pending!', err);
+                    if validate_error:
+                        self.logger.warn('local validation error, but network send succeed!')
+            except Exception as e:
+                self.logger.exception('fail to store tx as pending in DB!');
                 raise Exception('Internal DB fail in the importer!')
 
-            statusText = None
-            status = None
-            resp_body = None
-            if local_validation_error and bridge_resp.status != 200:
-                # We have local validation error and network failed too
+            status_text, status, resp_body = None, None, None
+            if validate_error and resp.status != 200:
                 # We send specific local response with network response attached
-                status = 400
-                statusText = 'Transaction failed local validation (Network status: ${bridge_resp.statusText})'
-                resp_body = 'Transaction validation error: ${local_validation_error} (Network response: ${bridge_resp.data})'
+                ret = f'Transaction validation error: {validate_error} (Network response: {resp.data}).'
+                return routers.fail(self, ret)
             else:
                 # Locally we have no validation errors - proxy the network response
-                status, statusText = bridge_resp
-                resp_body = bridge_resp.data
+                if resp.status == 200:
+                    return Routers.success(self)
 
-            resp.status(status)
-            # eslint-disable-next-line no-param-reassign
-            resp.statusText = statusText
-            resp.send(resp_body)
-            next()
+                return Routers.fail(resp.content)
 
         def parse_raw_tx(self, tx_payload: str):
-            self.logger.info(f'parse raw_tx: {tx_payload}')
-            now = datetime.utcnow()
-            tx = cbor.loads(base64.b64decode(tx_payload))
-            tx_obj = utils.raw_tx_to_obj(tx, {
-                'txTime': now,
+            self.logger.debug(f'parse raw tx: %s', tx_payload)
+            try:
+                b64_decode = base64.b64decode(tx_payload)
+            except Exception as e:
+                raise Exception('invalid base64 signedTx input.')
+
+            tx = cbor.loads(b64_decode)
+            tx_obj = utils.convert_raw_tx_to_obj(tx, {
+                'txTime': datetime.utcnow(),
                 'txOrdinal': None,
                 'status': TX_PENDING_STATUS,
                 'blockNum': None,
@@ -118,66 +115,73 @@ class Routers:
             return tx_obj
 
         async def store_tx_as_pending(self, tx):
-            self.logger.debug('txs.storeTxAsPending ${JSON.strify(tx)}')
+            self.logger.debug('store tx as pending: %s', tx)
             await self.db.store_tx(tx)
 
         async def validate_tx(self, tx_obj):
             try:
-              await self.validate_tx_witnesses(tx_obj)
-              self.validate_destination_network(tx_obj)
-              # TODO: more validation
-              return None
+                await self.validate_tx_witnesses(
+                    tx_obj['id'], 
+                    tx_obj['inputs'], 
+                    tx_obj['witnesses']
+                )
+                self.validate_destination_network(tx_obj['outputs'])
+
+                return None
             except Exception as e:
-              raise
+                return str(e)
 
-        async def validate_tx_witnesses(self, id, inputs, witnesses):
-            inpLen = len(inputs)
-            witLen = len(witnesses)
-            self.logger.debug(f'Validating witnesses for tx: ${id} (inputs: ${inpLen})')
-            if inpLen != witLen:
-              raise Exception(f'Number of inputs (${inpLen}) != the number of witnesses (${witLen})')
+        async def validate_tx_witnesses(self, tx_id, inputs, witnesses):
+            self.logger.debug(f'validate witnesses for tx: {tx_id}')
+            if len(inputs) != len(witnesses):
+              raise Exception(f'length of inputs: {inpLen} not equal length of witnesses: {witLen}')
 
-            txHashes = set([inp['txId'] for inp in inputs])
-            fullOutputs = await self.db.get_outputs_for_tx_hashes(txHashes)
+            tx_hashes = set([inp['txId'] for inp in inputs])
+            full_outputs = await self.db.get_outputs_for_tx_hashes(tx_hashes)
             for inp, witness in zip(inputs, witnesses):
-                  inputType, inputTxId, inputIdx = inp
-                  witnessType, sign = witness
-                  if inputType != 0 or witnessType != 0:
-                      self.logger.debug(f'Ignoring non-regular input/witness types: ${json.dumps({ inputType, witnessType })}')
+                input_type, input_tx_id, input_idx = inp
+                witnessType, sign = witness
+                if input_type != 0 or witnessType != 0:
+                    self.logger.debug(f'ignore non-regular input/witness types: %s/%s', input_type, witnessType)
 
-                  txOutputs = fullOutputs[inputTxId];
-                  if not txOutputs:
-                      raise Exception('No UTxO is found for tx ${inputTxId}! Maybe the blockchain is still syncing? If not - something is wrong.')
+                tx_outputs = full_outputs.get(input_tx_id)
+                if not tx_outputs:
+                    raise Exception(f'No UTXO is found for tx {input_tx_id}! Maybe the blockchain is still syncing? If not, something is wrong.')
 
-                  inputAddress, inputAmount = txOutputs[inputIdx]
-                  self.logger.debug(f'Validating witness for input: ${inputTxId}.${inputIdx} (${inputAmount} coin from ${inputAddress})')
-                  addressRoot, addrAttr, addressType = self.deconstruct_address(inputAddress)
-                  if addressType != 0:
-                    self.logger.debug('Unsupported address type: ${addressType}. Skipping witness validation for this input.')
+                input_address, input_amount = tx_outputs[input_idx]
+                self.logger.debug('validate witness for input: %s.%s (%s coin from %s)', input_tx_id, input_idx, input_amount, input_address)
+                address_root, addr_attr, address_type = self.deconstruct_address(input_address)
+                if address_type != 0:
+                    self.logger.debug('Unsupported address type: %s. skip witness validation for this input.', address_type)
                     return
 
-                  addressRootHex = addressRoot.toString('hex')
-                  expectedStruct = [0, [0, sign[0]], addrAttr]
-                  encodedStruct = bytes.fromhex(sha3_256.update(
-                    cbor.encodeCanonical(expectedStruct)).digest())
-                  expectedRootHex = blake.blake2bHex(encodedStruct, None, 28)
-                  if addressRootHex != expectedRootHex:
-                      raise Exception('Witness does not match! ${JSON.strify({ addressRootHex, expectedRoot: expectedRootHex })}')
+                address_root_hex = address_root.toString('hex')
+                expected_struct = [0, [0, sign[0]], addr_attr]
+                encoded_struct = cbor.encodeCanonical(expected_struct)
+                bytes_struct = bytes.fromhex(sha3_256(encoded_struct).digest())
+                expected_root_hex = blake2b(bytes_struct, digest_size=28).hexdigest()
+                if address_root_hex != expected_root_hex:
+                    raise Exception('Witness does not match: %s != %s', address_root_hex, expected_root_hex)
 
         def validate_destination_network(self, outputs):
-            self.logger.debug('Validating output network (outputs: ${outputs.length})')
+            self.logger.debug('validate output network.')
             for i, out in enumerate(outputs):
-              address = out['address']
-              self.logger.debug(f'Validating network for ${address}')
-              addrAttr = self.deconstruct_address(address)
-              network_attr = addrAttr and addrAttr.get and addrAttr.get(2)
-              network_magic = network_attr and network_attr.readInt32BE(1)
-              if network_magic != self.expected_network_magic:
-                raise Exception(f'Output #${i} network magic is ${network_magic}, expected ${self.expected_network_magic}')
+                address = out['address']
+                self.logger.debug('validate network for %s', address)
+                addr_attr = self.deconstruct_address(address)
+                network_attr = addr_attr and addr_attr.get and addr_attr.get(2)
+                network_magic = network_attr and network_attr.readInt32BE(1)
+                if network_magic != self.expected_network_magic:
+                    raise Exception('output %s network magic is %s, expected %s' % (i, network_magic, self.expected_network_magic))
 
         @staticmethod 
-        def deconstruct_address(cls, address: str):
-            [addressRoot, addrAttr, addressType] = cbor.loads(
+        def deconstruct_address(address: str):
+            address_root, addr_attr, address_type = cbor.loads(
               cbor.loads(base58.b58decode(address))[0].value
             )
-            return { addressRoot, addrAttr, addressType }
+
+            return {
+                'address_root': address_root, 
+                'addr_attr': addr_attr, 
+                'address_type': address_type
+            }
