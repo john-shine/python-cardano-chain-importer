@@ -141,7 +141,7 @@ class Routers:
             if len(inputs) != len(witnesses):
               raise Exception(f'length of inputs: {inpLen} not equal length of witnesses: {witLen}')
 
-            tx_hashes = set([inp['txId'] for inp in inputs])
+            tx_hashes = list(set([inp['txId'] for inp in inputs]))
             full_outputs = await self.db.get_outputs_for_tx_hashes(tx_hashes)
             for inp, witness in zip(inputs, witnesses):
                 input_type, input_tx_id, input_idx = inp

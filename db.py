@@ -5,6 +5,7 @@ from constants.tx import TX_SUCCESS_STATUS
 from datetime import datetime
 import psycopg2
 from config import config
+from psycopg2.extras import RealDictCursor
 
 
 class DB:
@@ -24,9 +25,9 @@ class DB:
                 port=config['db']['port'],
                 connect_timeout=config['db']['timeout']
             )
-            self._conn.autocommit(True)
+            self._conn.autocommit = True
 
-        return self._conn.cursor()
+        return self._conn.cursor(cursor_factory=RealDictCursor)
 
     def close(self):
         if self._conn:
@@ -43,7 +44,8 @@ class DB:
     async def get_best_blockNum(self):
         sql = 'SELECT block_hash, block_height, epoch, slot FROM blocks ORDER BY block_height DESC LIMIT 1'
         with self.conn as cursor:
-            row = await cursor.execute(sql).fetchone()
+            cursor.execute(sql)
+            row = cursor.fetchone()
 
         if row:
             return {
@@ -203,13 +205,14 @@ class DB:
 
     async def get_outputs_for_tx_hashes(self, tx_hashes: list):
         if not tx_hashes:
-            return []
+            return {}
 
-        sql = 'SELECT FROM txs where hash in ?'
+        sql = 'SELECT FROM txs where hash in (%s)'
         with self.conn as cursor:
-            rows = await cursor.execute(sql, ', '.join(tx_hashes)).fetchall()
+            cursor.execute(sql, (', '.join(tx_hashes), ))
+            rows = cursor.fetchall()
 
-        res = []
+        res = {}
         for row in rows:
             res[row['hash']] = (row['address'], row['amount'])
         
@@ -219,7 +222,8 @@ class DB:
         # Check whether utxo and blocks tables are empty.
         query = 'SELECT (SELECT count(*) FROM utxos) + (SELECT count(*) FROM blocks) as cnt'
         with self.conn as cursor:
-            count = await cursor.execute(query).fetchone()
+            cursor.execute(query)
+            count = cursor.fetchone()
 
         return count['cnt'] > 0
 

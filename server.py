@@ -14,14 +14,14 @@ enable_pretty_logging()
 
 logger = get_logger('server')
 
-async def main(loop):
+async def main():
     db = DB()
     http_bridge = HttpBridge()
-    is_loaded = db.is_genesis_loaded()
+    is_loaded = await db.is_genesis_loaded()
     if not is_loaded:
         logger.info('start to load genesis.')
         genesis = Genesis()
-        genesis_file = http_bridge.get_genesis(genesis.genesis_hash)
+        genesis_file = await http_bridge.get_genesis(genesis.genesis_hash)
         if genesis_file.get('nonAvvmBalances'):
             utxos = genesis.non_avvm_balances_to_utxos(genesis_file['nonAvvmBalances'])
             await db.store_utxos(utxos)
@@ -54,4 +54,5 @@ if __name__ == '__main__':
     logger.info('server is listen on port: %d', args.port)
 
     loop = IOLoop.current()
+    loop.run_sync(main)
     loop.start()
