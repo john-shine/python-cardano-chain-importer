@@ -4,9 +4,10 @@
 # import blake from 'blakejs'
 import json
 import base58
+import base64
+import binascii
 from cbor import cbor
-from hashlib import blake2b
-from config import config
+from hashlib import blake2b, sha3_256
 
 
 def generate_utxo_hash(address):
@@ -18,20 +19,20 @@ def get_utxo_id(input):
     return f'${input["txId"]}${input["idx"]}'
 
 
-def struct_utxo(receiver, amount, utxoHash, txIndex=0, blockNum=0):
+def struct_utxo(receiver, amount, utxo_hash, tx_index=0, block_num=0):
     return {
-        'utxo_id': f'${utxoHash}${txIndex}',
-        'tx_hash': utxoHash,
-        'tx_index': txIndex,
+        'utxo_id': f'{utxo_hash}{tx_index}',
+        'tx_hash': utxo_hash,
+        'tx_index': tx_index,
         'receiver': receiver,
         'amount': amount,
-        'block_num': blockNum,
+        'block_num': block_num,
     }
 
 
 """
    * We need to use this function cuz there are some extra-long addresses
-   * existing on Cardano mainnet. Some of them exceed 10K characters in length,
+   * existing on cardano mainnet. Some of them exceed 10K characters in length,
    * and Postgres can't store it.
    * We don't care about making these non-standard addresses spendable, so any address
    * over 1K characters is just truncated.
@@ -40,7 +41,7 @@ def struct_utxo(receiver, amount, utxoHash, txIndex=0, blockNum=0):
 
 def fix_long_address(address: str):
     if address and len(address) > 1000:
-        return f'${address[0:497]}...${address[len(address) - 500:500]}'
+        return f'{address[0:497]}...{address[len(address) - 500:500]}'
     else:
         return address
 
@@ -48,16 +49,16 @@ def fix_long_address(address: str):
 def get_txs_utxos(txs):
     ret = {}
     for tx in txs:
-        tx_id, outputs, blockNum = tx
+        tx_id, outputs, block_num = tx
         for index, output in enumerate(outputs):
             utxo = struct_utxo(
                 fix_long_address(output['address']),
                 output['value'],
                 tx_id,
                 index,
-                blockNum
+                block_num
             )
-            ret[f'${tx_id}${index}'] = utxo
+            ret[f'{tx_id}{index}'] = utxo
 
     return ret
 
@@ -111,8 +112,8 @@ def convert_raw_tx_to_obj(tx: list, extraData: dict):
     inputs, outputs, witnesses = [], [], []
     for inp in tx_inputs:
         types, tagged = inp
-        inputTxId, idx = cbor.loads(tagged.value)
-        inputs.append({'type': types, 'txId': inputTxId.hex(), 'idx': idx})
+        input_tx_id, idx = cbor.loads(tagged.value)
+        inputs.append({'type': types, 'txId': input_tx_id.hex(), 'idx': idx})
 
     for out in tx_outputs:
         address, value = out
@@ -138,7 +139,8 @@ def header_to_id(header, tx_type: int):
     header_data = cbor.loads([tx_type, header])
     return blake2b(header_data, digest_size=32).hexdigest()
 
-def get_network_config(network_name):
+
+def get_network_config(network_name, config):
     network = config.get('networks', {}).get(network_name)
     if not network:
         return None
@@ -147,3 +149,19 @@ def get_network_config(network_name):
         network['bridgeUrl'] = config.get('defaultBridgeUrl')
 
     return network
+
+
+def redeem_key_to_address(public_redeem_key):
+    pk = base64.urlsafe_b64decode(public_redeem_key)
+
+    addr = [2, [2, pk], {}]
+    addr_hash = blake2b(sha3_256(cbor.dumps(addr, sort_keys=True)).digest(), digest_size=28).digest()
+
+    tag = cbor.dumps([addr_hash, {}, 2], sort_keys=True)
+
+    address = cbor.dumps([
+        cbor.Tag(24, tag),
+        binascii.crc32(tag)
+    ])
+
+    return base58.b58encode(address).decode()
