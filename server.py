@@ -15,9 +15,9 @@ enable_pretty_logging()
 logger = get_logger('server')
 
 async def main():
-    db = DB()
+    database = DB()
     http_bridge = HttpBridge()
-    is_loaded = await db.is_genesis_loaded()
+    is_loaded = await database.is_genesis_loaded()
     if not is_loaded:
         logger.info('start to load genesis.')
         genesis = Genesis()
@@ -37,7 +37,7 @@ async def main():
         logger.info('genesis has already loaded.')
 
     scheduler = Scheduler()
-    asyncio.add_task(scheduler.start())
+    await scheduler.start()
 
     logger.info('server is running.')
 

@@ -44,7 +44,7 @@ class Scheduler:
         self.last_block = {'epoch': None, 'hash': None}
 
     async def rollback(self, at_block_height: int):
-        self.logger.info(f'rollback at height ${at_block_height} to ${self.rollback_blocks_count} blocks back.')
+        self.logger.info(f'rollback at height {at_block_height} to {self.rollback_blocks_count} blocks back.')
         # reset scheduler state
         self.blocks_to_store = []
         self.last_block = {}
@@ -55,7 +55,7 @@ class Scheduler:
             best_blockNum = await self.db.get_best_blockNum()
             height = best_blockNum['height']
             roll_back_to_height = height - self.rollback_blocks_count
-            self.logger.info(f'current DB height at rollback time: ${height}. rollback to: ${roll_back_to_height}')
+            self.logger.info(f'current DB height at rollback time: {height}. rollback to: {roll_back_to_height}')
             await self.reset_to_block_height(roll_back_to_height)
             best_blockNum = await self.db.get_best_blockNum()
             epoch, block_hash = itemgetter('epoch', 'hash')(best_blockNum)
@@ -72,7 +72,7 @@ class Scheduler:
         await self.db.update_best_blockNum(block_height)
 
     async def process_epoch(self, epoch_id: int, height: int):
-        self.logger.info(f'process epoch of id: ${epoch_id}, ${height}')
+        self.logger.info(f'process epoch of id: {epoch_id}, {height}')
 
         blocks = await self.http_bridge.get_parsed_epoch_by_id(epoch_id, True)
         for block in blocks:
@@ -89,7 +89,7 @@ class Scheduler:
 
         if (self.last_block and block['epoch'] == self.last_block['epoch']
           and block['prevHash'] != self.last_block['hash']):
-            self.logger.info(f'(${block["epoch"]}/${block["slot"]}) block["prevHash"] (${block["prevHash"]}) != last_block["hash"] (${self.last_block["hash"]}). Performing rollback...')
+            self.logger.info(f'({block["epoch"]}/{block["slot"]}) block["prevHash"] ({block["prevHash"]}) != last_block["hash"] ({self.last_block["hash"]}). Performing rollback...')
             return self.STATUS_ROLLBACK_REQUIRED
 
         self.last_block = {
@@ -114,7 +114,7 @@ class Scheduler:
             raise
         finally:
             if is_flush_cache or (block['height'] % LOG_BLOCK_PARSED_THRESHOLD == 0):
-                self.logger.info(f'block parsed: ${block["hash"]} ${block["epoch"]} ${block["slot"]} ${block["height"]}')
+                self.logger.info(f'block parsed: {block["hash"]} {block["epoch"]} {block["slot"]} {block["height"]}')
 
         return self.BLOCK_STATUS_PROCESSED
 
@@ -125,14 +125,14 @@ class Scheduler:
         height, epoch, slot = itemgetter('height', 'epoch', 'slot')(best_blockNum)
 
         node_status = await self.http_bridge.get_status()
-        packed_epochs, node_tip = itemgetter('packedEpochs', 'nodeTip')(node_status)
+        packed_epochs, node_tip = itemgetter('packedEpochs', 'tip')(node_status)
         tip_status = node_tip['local']
         remote_status = node_tip['remote']
         if not tip_status:
             self.logger.info('cardano-http-brdige not synced yet')
             return
 
-        self.logger.info(f'last imported block ${height}. Node status: local=${tip_status["slot"]} remote=${remote_status["slot"]} packed_epochs=${packed_epochs}')
+        self.logger.info(f'last imported block {height}. Node status: local={tip_status["slot"]} remote={remote_status["slot"]} packed_epochs={packed_epochs}')
 
         [remote_epoch, remote_slot] = remote_status['slot']
         if epoch < remote_epoch:
@@ -150,7 +150,7 @@ class Scheduler:
                         await self.process_epoch(epoch_id, height)
                 else:
                   # Packed epoch is not available yet
-                  self.logger.info('cardano-http-brdige has not yet packed stable epoch: ${epoch} (last_remote_stable_epoch=${last_remote_stable_epoch})')
+                  self.logger.info('cardano-http-brdige has not yet packed stable epoch: {epoch} (last_remote_stable_epoch={last_remote_stable_epoch})')
 
                 return
 
@@ -177,10 +177,12 @@ class Scheduler:
             try:
                 await self.check_tip()
             except Exception as e:
-                meta = self.error_meta.get(e.code)
+                meta = None
+                if hasattr(e, 'code'):
+                    meta = self.error_meta.get(e.code)
                 if meta:
                     error_sleep = meta['sleep']
-                    self.logger.warn(f'Scheduler async: failed to check tip :: ${meta["msg"]}. Sleeping and retrying (err_sleep=${error_sleep})')
+                    self.logger.warn(f'Scheduler async: failed to check tip :: {meta["msg"]}. Sleeping and retrying (err_sleep={error_sleep})')
                 else:
                     raise
 

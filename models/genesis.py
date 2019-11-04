@@ -42,12 +42,11 @@ class Genesis:
 
     def avvm_distr_to_utxos(self, avvm_distr, protocol_magic):
         self.logger.debug('avvm distr to utxos called.')
-        settings = Cardano.BlockchainSettings.from_json({
-          'protocol_magic': protocol_magic,
-        })
+        # settings = Cardano.BlockchainSettings.from_json({
+        #   'protocol_magic': protocol_magic,
+        # })
         ret = []
-        for avvm in avvm_distr:
-            amount, public_redeem_key = avvm
+        for public_redeem_key, amount in avvm_distr.items():
             # prk = Cardano.PublicRedeemKey.fromhex(base64url.decode(public_redeem_key, 'hex'))
             # receiver_addr = prk.address(settings).to_base58()
             receiver_addr = redeem_key_to_address(public_redeem_key)

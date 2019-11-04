@@ -5,7 +5,7 @@ from constants.tx import TX_SUCCESS_STATUS
 from datetime import datetime
 import psycopg2
 from config import config
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 
 
 class DB:
@@ -34,10 +34,10 @@ class DB:
             self._conn.close()
 
     async def store_utxos(self, utxos):
-        sql = 'insert into utxos set ' + '=?, '.join(utxos.keys()) + '=?'
-        self.logger.info('store utxos: ', sql)
+        sql = 'insert into utxos (utxo_id, tx_hash, tx_index, receiver, amount, block_num) values %s'
+        self.logger.info('store utxos: %s', len(utxos))
         with self.conn as cursor:
-            await cursor.execute(sql, utxos.values())
+            execute_values(cursor, sql, utxos, "(%(utxo_id)s, %(tx_hash)s, %(tx_index)s, %(receiver)s, %(amount)s, %(block_num)s)")
 
         return True
 
