@@ -19,7 +19,7 @@ import base58
 import base64
 from db import DB
 from cbor import cbor
-from constants.tx import *
+from constants.transaction import *
 from datetime import datetime
 from lib import utils
 from hashlib import blake2b, sha3_256
@@ -93,7 +93,7 @@ class Routers:
             if validate_error and resp.status != 200:
                 # We send specific local response with network response attached
                 ret = f'Transaction validation error: {validate_error} (Network response: {resp.data}).'
-                return routers.fail(self, ret)
+                return Routers.fail(self, ret)
             else:
                 # Locally we have no validation errors - proxy the network response
                 if resp.status == 200:
@@ -139,7 +139,7 @@ class Routers:
         async def validate_tx_witnesses(self, tx_id, inputs, witnesses):
             self.logger.debug(f'validate witnesses for tx: {tx_id}')
             if len(inputs) != len(witnesses):
-              raise Exception(f'length of inputs: {inpLen} not equal length of witnesses: {witLen}')
+              raise Exception(f'length of inputs: {len(inputs)} not equal length of witnesses: {len(witnesses)}')
 
             tx_hashes = list(set([inp['txId'] for inp in inputs]))
             full_outputs = await self.db.get_outputs_for_tx_hashes(tx_hashes)

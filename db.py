@@ -1,7 +1,7 @@
 from lib.logger import get_logger
 from lib import utils
 import json
-from constants.tx import TX_SUCCESS_STATUS
+from constants.transaction import TX_SUCCESS_STATUS, TX_PENDING_STATUS
 from datetime import datetime
 import psycopg2
 from config import config
@@ -41,8 +41,8 @@ class DB:
         self.connect.autocommit = is_auto
 
     def close(self):
-        if self._conn:
-            self._conn.close()
+        if self._connect:
+            self._connect.close()
 
     async def store_utxos(self, utxos):
         sql = 'insert into utxos (utxo_id, tx_hash, tx_index, receiver, amount, block_num) values %s'
@@ -168,8 +168,8 @@ class DB:
         tx_id, outputs, blockNum = tx['id'], tx['outputs'], tx['blockNum']
         utxos_data = []
         for output, index in outputs:
-            utxos_data.append(utils.structUtxo(
-                utils.fixLongAddress(output.address), 
+            utxos_data.append(utils.struct_utxo(
+                utils.fix_long_address(output.address),
                 output.value, 
                 tx_id, 
                 index, 

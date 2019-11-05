@@ -4,7 +4,7 @@ from db import DB
 from operator import itemgetter
 from lib.logger import get_logger
 from models.http_bridge import HttpBridge
-from constants.network import *
+from constants.scheduler import *
 
 # import {
 #   Scheduler,
@@ -32,19 +32,17 @@ class Scheduler:
     STATUS_ROLLBACK_REQUIRED = 'ROLLBACK_REQUIRED'
     BLOCK_STATUS_PROCESSED = 'BLOCK_PROCESSED'
 
-    def __init__(self, check_tip_seconds=15, rollback_blocks_count=25):
+    def __init__(self):
         self.logger = get_logger('scheduler')
         self.db = DB()
         self.http_bridge = HttpBridge()
-        self.rollback_blocks_count = rollback_blocks_count
-        self.check_tip_seconds = check_tip_seconds
-        self.logger.debug('check tip in every %d seconds', self.check_tip_seconds)
-        self.logger.debug('rollback blocks count set to: %d', self.rollback_blocks_count)
+        self.logger.debug('check tip in every %d seconds', CHECK_TIP_SECONDS)
+        self.logger.debug('rollback blocks count set to: %d', ROLLBACK_BLOCKS_COUNT)
         self.blocks_to_store = []
         self.last_block = {'epoch': None, 'hash': None}
 
     async def rollback(self, at_block_height: int):
-        self.logger.info(f'rollback at height {at_block_height} to {self.rollback_blocks_count} blocks back.')
+        self.logger.info(f'rollback at height {at_block_height} to {ROLLBACK_BLOCKS_COUNT} blocks back.')
         # reset scheduler state
         self.blocks_to_store = []
         self.last_block = {}
@@ -52,7 +50,7 @@ class Scheduler:
             # Recover database state to newest actual block.
             best_blockNum = await self.db.get_best_blockNum()
             height = best_blockNum['height']
-            roll_back_to_height = height - self.rollback_blocks_count
+            roll_back_to_height = height - ROLLBACK_BLOCKS_COUNT
             self.logger.info(f'current DB height at rollback time: {height}. rollback to: {roll_back_to_height}')
             await self.db.rollback_transactions(roll_back_to_height)
             await self.db.rollback_utxo_backup(roll_back_to_height)
@@ -182,7 +180,7 @@ class Scheduler:
             time_passed = time_end - time_start
             self.logger.info('chain sync loop finished in %d seconds', time_passed)
 
-            time_sleep = error_sleep or (self.check_tip_seconds - time_passed)
+            time_sleep = error_sleep or (CHECK_TIP_SECONDS - time_passed)
             if time_sleep > 0:
                 self.logger.info('sync loop sleep for %d seconds', time_sleep)
                 await asyncio.sleep(time_sleep)

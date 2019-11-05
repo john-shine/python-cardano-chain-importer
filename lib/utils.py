@@ -2,7 +2,7 @@
 # import borc from 'borc'
 # import bs58 from 'bs58'
 # import blake from 'blakejs'
-import json
+
 import base58
 import base64
 import binascii
@@ -139,17 +139,6 @@ def convert_raw_tx_to_obj(tx: list, extraData: dict):
 def header_to_id(header, tx_type: int):
     header_data = cbor.dumps([tx_type, header])
     return blake2b(header_data, digest_size=32).hexdigest()
-
-
-def get_network_config(network_name, config):
-    network = config.get('networks', {}).get(network_name)
-    if not network:
-        return None
-
-    if not network.get('bridgeUrl'):
-        network['bridgeUrl'] = config.get('defaultBridgeUrl')
-
-    return network
 
 
 def redeem_key_to_address(public_redeem_key):
