@@ -78,4 +78,3 @@ class HttpBridge:
         blocks_iterator = self.parser.parse_epoch(resp.body, {'omitEbb': is_omit_ebb})
 
         return blocks_iterator
-
