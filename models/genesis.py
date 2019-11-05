@@ -1,19 +1,3 @@
-# import { helpers } from 'inversify-vanillajs-helpers'
-# import { BLAKE2b } from 'bcrypto'
-# import bs58 from 'bs58'
-# import _ from 'lodash'
-# import * as Cardano from 'cardano-wallet'
-# import base64url from 'base64url'
-
-# import {
-#   RawDataProvider,
-#   Logger,
-#   Genesis,
-# } from '../interfaces'
-# import SERVICE_IDENTIFIER from '../constants/identifiers'
-
-# import utils from '../blockchain/utils'
-# import type { NetworkConfig } from '../interfaces'
 # import base58
 # import base64
 from lib import utils

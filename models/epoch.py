@@ -1,5 +1,3 @@
-# // @flow
-# import Block from './block'
 from .block import Block
 
 class Epoch:
@@ -18,7 +16,6 @@ class Epoch:
         blob = blocks_list[(offset + 4):(offset + block_size + 4)]
         return block_size, blob
 
-
     def get_next_block(self, blocks_list: bytes, offset: int):
         block_size, blob = self.get_blockdata_by_offset(blocks_list, offset)
         block = Block.from_CBOR(blob, self.network_start_time)
@@ -26,7 +23,6 @@ class Epoch:
         next_block_offset = block_size + 4 \
           + (bytes_to_allign and (4 - bytes_to_allign)) # 4 is block size field
         return block, offset + next_block_offset
-
 
     def get_blocks_iterator(self, options={}): 
         blocks_list = self.data[16:] # header

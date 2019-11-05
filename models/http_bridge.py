@@ -1,18 +1,9 @@
-# import urljoin from 'url-join'
-# import axios from 'axios'
-
-# import { helpers } from 'inversify-vanillajs-helpers'
-
-# import { RawDataProvider, RawDataParser } from '../../interfaces'
-# import SERVICE_IDENTIFIER from '../../constants/identifiers'
-# import type { NetworkConfig } from '../../interfaces'
-
 import json
-from tornado.httpclient import AsyncHTTPClient, HTTPClientError
 from urllib.parse import urljoin
 from models.network import Network
 from models.parser import Parser
 from lib.logger import get_logger
+from tornado.httpclient import AsyncHTTPClient, HTTPClientError
 
 
 class HttpBridge:
@@ -87,4 +78,3 @@ class HttpBridge:
         blocks_iterator = self.parser.parse_epoch(resp.body, {'omitEbb': is_omit_ebb})
 
         return blocks_iterator
-
