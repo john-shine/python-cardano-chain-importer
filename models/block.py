@@ -41,8 +41,6 @@ class Block:
         chain_difficulty,  = consensus[2]
         txs = body[0]
         upd1, upd2 = body[3]
-        print('network_start_time', network_start_time)
-        print('epoch', epoch, 'SLOTS_IN_EPOCH', SLOTS_IN_EPOCH, 'slot', slot)
         block_time = datetime.utcfromtimestamp(network_start_time + (epoch * SLOTS_IN_EPOCH + slot) * 20)
 
         return {
@@ -56,7 +54,7 @@ class Block:
               'txOrdinal': index,
               'blockNum': chain_difficulty,
               'block_hash': block_hash,
-          }) for tx, index in txs]
+          }) for index, tx in enumerate(txs)]
         }
 
     @staticmethod 
@@ -78,8 +76,6 @@ class Block:
             block_data.update(Block.handle_regular_block(header, body, hashs, handle_regular_block))
         else:
             raise Exception(f'unexpected block type: {block_type}')
-
-        print('block_data', block_data)
 
         return Block(**block_data)
 

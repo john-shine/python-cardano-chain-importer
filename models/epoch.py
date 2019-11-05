@@ -14,9 +14,7 @@ class Epoch:
 
     @staticmethod
     def get_blockdata_by_offset(blocks_list, offset: int):
-        print('offset', offset)
         block_size = int.from_bytes(blocks_list[offset:(offset + 4)], byteorder='big')
-        print('block_size', block_size)
         blob = blocks_list[(offset + 4):(offset + block_size + 4)]
         return block_size, blob
 

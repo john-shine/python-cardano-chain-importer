@@ -48,7 +48,6 @@ class Scheduler:
         # reset scheduler state
         self.blocks_to_store = []
         self.last_block = {}
-        self.db.auto_commit(False)
         try:
             # Recover database state to newest actual block.
             best_blockNum = await self.db.get_best_blockNum()
@@ -62,9 +61,7 @@ class Scheduler:
             best_blockNum = await self.db.get_best_blockNum()
             epoch, block_hash = itemgetter('epoch', 'hash')(best_blockNum)
             self.last_block = {'epoch': epoch, 'hash': block_hash}
-            self.db.conn.commit()
         except Exception as e:
-            self.db.conn.rollback()
             raise
 
     async def process_epoch(self, epoch_id: int, height: int):
@@ -98,7 +95,6 @@ class Scheduler:
             'epoch': block.epoch,
             'slot': block.slot
         })
-        self.db.auto_commit(False)
         try:
             if (len(self.blocks_to_store) > BLOCKS_CACHE_SIZE or block_have_txs or is_flush_cache):
                 if block_have_txs:
@@ -107,19 +103,16 @@ class Scheduler:
                 await self.db.store_blocks(self.blocks_to_store)
                 await self.db.update_best_blockNum(block.height)
                 self.blocks_to_store = []
-                self.db.conn.commit()
         except Exception as e:
-            self.db.conn.rollback()
             raise
         finally:
             if is_flush_cache or (block.height % LOG_BLOCK_PARSED_THRESHOLD == 0):
-                self.logger.info(f'block parsed: {block.hash} {block.epoch} {block.slot} {block.height}')
+                self.logger.info(f'block parsed => hash: {block.hash} epoch: {block.epoch} slot: {block.slot} height: {block.height}')
 
         return self.BLOCK_STATUS_PROCESSED
 
     async def check_tip(self):
         self.logger.info('checking for new blocks.')
-        self.db.auto_commit(True)
         best_blockNum = await self.db.get_best_blockNum()
         height, epoch, slot = itemgetter('height', 'epoch', 'slot')(best_blockNum)
 

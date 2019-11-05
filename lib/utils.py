@@ -7,6 +7,7 @@ import base58
 import base64
 import binascii
 from cbor import cbor
+from operator import itemgetter
 from hashlib import blake2b, sha3_256
 
 
@@ -16,7 +17,7 @@ def generate_utxo_hash(address):
 
 
 def get_utxo_id(input):
-    return f'${input["txId"]}${input["idx"]}'
+    return f'{input["txId"]}{input["idx"]}'
 
 
 def struct_utxo(receiver, amount, utxo_hash, tx_index=0, block_num=0):
@@ -49,7 +50,7 @@ def fix_long_address(address: str):
 def get_txs_utxos(txs):
     ret = {}
     for tx in txs:
-        tx_id, outputs, block_num = tx
+        tx_id, outputs, block_num = itemgetter('id', 'outputs', 'blockNum')(tx)
         for index, output in enumerate(outputs):
             utxo = struct_utxo(
                 fix_long_address(output['address']),

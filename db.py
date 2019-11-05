@@ -17,7 +17,7 @@ class DB:
 
     @property
     def conn(self):
-        if not self._cursor:
+        if not self._cursor or self._cursor.closed:
             self._cursor = self.connect.cursor(cursor_factory=RealDictCursor)
 
         return self._cursor
@@ -70,7 +70,7 @@ class DB:
 
     async def update_best_blockNum(self, best_blockNum: int):
         with self.conn as cursor:
-            await cursor.execute('update bestblock set best_block_num=%s', (best_blockNum))
+            cursor.execute('update bestblock set best_block_num=%s', (best_blockNum, ))
 
         return True
 
@@ -80,7 +80,7 @@ class DB:
               'SET tx_state=%s, block_num=%s, time=%s, last_update=%s '\
               'WHERE block_num > %s'
         with self.conn as cursor:
-            await cursor.execute(sql, (TX_PENDING_STATUS, None, None, None, datetime.now(), block_height))
+            cursor.execute(sql, (TX_PENDING_STATUS, None, None, None, datetime.now(), block_height))
 
         return True
 
@@ -88,11 +88,11 @@ class DB:
         self.logger.info('delete invalid utxos above block height: %s', block_height)
         sql = 'delete FROM utxos where block_num > %s'
         with self.conn as cursor:
-            await cursor.execute(sql, (block_height, ))
+            cursor.execute(sql, (block_height, ))
 
         sql = 'delete FROM utxos_backup where block_num > %s'
         with self.conn as cursor:
-            await cursor.execute(sql, (block_height, ))
+            cursor.execute(sql, (block_height, ))
 
         return True
 
@@ -102,7 +102,7 @@ class DB:
 
         sql = 'WITH moved_utxos AS (DELETE FROM utxos_backup WHERE block_num < %s AND delete_block_num > %s RETURNING *) INSERT INTO utxos SELECT * FROM moved_utxos'
         with self.conn as cursor:
-            await cursor.execute(sql, (block_height, block_height))
+            cursor.execute(sql, (block_height, block_height))
 
         return True
 
@@ -110,7 +110,7 @@ class DB:
         self.logger.info('rollback block_history to block height: %s', block_height)
 
         with self.conn as cursor:
-            await cursor.execute('delete FROM blocks where block_height > %s', (block_height, ))
+            cursor.execute('delete FROM blocks where block_height > %s', (block_height, ))
 
         return True
 
@@ -121,7 +121,7 @@ class DB:
         sql = 'INSERT INTO blocks (block_hash, block_height, epoch, slot) VALUES (%(block_hash)s, %(block_height)s, %(epoch)s, %(slot)s)'
         try:
             with self.conn as cursor:
-                await cursor.execute(sql, vars(block))
+                cursor.execute(sql, vars(block))
         except Exception as e:
             self.logger.exception('error occur on block: %s', block)
             return False
@@ -133,18 +133,17 @@ class DB:
             return False
 
         sql = 'INSERT INTO blocks (block_hash, block_height, epoch, slot) VALUES %s'
-        blocks_data = [vars(block) for block in blocks]
 
         try:
             with self.conn as cursor:
-                await execute_values(
+                execute_values(
                     cursor, 
                     sql, 
-                    blocks_data, 
+                    blocks, 
                     "(%(block_hash)s, %(block_height)s, %(epoch)s, %(slot)s)"
                 )
         except Exception as e:
-            self.logger.exception('error occur on blocks: %s', blocks)
+            self.logger.exception('error occur on %s blocks', len(blocks))
             return False
 
         return True
@@ -158,7 +157,7 @@ class DB:
         query = 'insert tx_addresses on conflict set ...'
         try:
             with self.conn as cursor:
-                await cursor.execute(query)
+                cursor.execute(query)
         except Exception as e:
             self.logger.exception('addresses for %s already stored', tx_id)
             return False
@@ -189,7 +188,7 @@ class DB:
               '  (SELECT utxo_id, tx_hash, tx_index, receiver, amount, block_num, %s AS deleted_block_num FROM moved_utxos)'
         str_ids = ', '.join(utxo_ids)
         with self.conn as cursor:
-            await cursor.execute(sql, (str_ids, deleted_block_num))
+            cursor.execute(sql, (str_ids, deleted_block_num))
             self.logger.info('backup and remove utxos: %s', str_ids)
 
         return True
@@ -198,9 +197,10 @@ class DB:
         if not utxo_ids:
             return []
 
-        sql = 'SELECT * FROM utxos WHERE utxo_id IN (%s)'
+        sql = 'SELECT * FROM utxos WHERE utxo_id IN (\'{}\')'
         with self.conn as cursor:
-            rows = await cursor.query(sql, ', '.join(utxo_ids))
+            cursor.execute(sql.format('\', \''.join(utxo_ids)))
+            rows = cursor.fetchall()
 
         return [{
           'address': row['receiver'],
@@ -282,7 +282,7 @@ class DB:
 
         self.logger.info('insert into txs: %s', sql)
         with self.conn as cursor:
-            await cursor.execute(sql, (tx_db_fields.values(), ))
+            cursor.execute(sql, (tx_db_fields.values(), ))
 
         await self.store_tx_addresses(
             tx_id,
@@ -312,10 +312,12 @@ class DB:
                     del new_utxos[utxo_id]
 
         required_utxo_ids = [utils.get_utxo_id(inp) for inp in required_inputs]
-        self.logger.info('store block txs required utxo', required_utxo_ids)
+        self.logger.info('store block txs required utxo: %s', required_utxo_ids)
         available_utxos = await self.get_utxos(required_utxo_ids)
-        all_utxo_map = available_utxos + block_utxos
-        all_utxo_map.sort(key=lambda r: r['id'])
+        all_utxo_map = {}
+        for utxo in available_utxos + block_utxos:
+            all_utxo_map[utxo['id']] = utxo
+
         for index in range(len(txs)):
             tx = txs[index]
             utxos = []
