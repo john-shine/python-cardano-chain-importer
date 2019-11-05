@@ -62,9 +62,9 @@ class Scheduler:
             best_blockNum = await self.db.get_best_blockNum()
             epoch, block_hash = itemgetter('epoch', 'hash')(best_blockNum)
             self.last_block = {'epoch': epoch, 'hash': block_hash}
-            self.db.commit()
+            self.db.conn.commit()
         except Exception as e:
-            self.db.rollback()
+            self.db.conn.rollback()
             raise
 
     async def process_epoch(self, epoch_id: int, height: int):
@@ -72,7 +72,7 @@ class Scheduler:
 
         blocks = await self.http_bridge.get_parsed_epoch_by_id(epoch_id, True)
         for block in blocks:
-            if block['height'] > height:
+            if block.height > height:
                 await self.process_block(block)
 
     async def process_block_height(self, height: int):
@@ -81,17 +81,17 @@ class Scheduler:
         return self.process_block(block, is_flush_cache)
 
     async def process_block(self, block, is_flush_cache=False):
-        if (self.last_block and block['epoch'] == self.last_block['epoch']
-          and block['prevHash'] != self.last_block['hash']):
-            self.logger.info(f'({block["epoch"]}/{block["slot"]}) block["prevHash"] ({block["prevHash"]}) != last_block["hash"] ({self.last_block["hash"]}). Performing rollback...')
+        if (self.last_block and block.epoch == self.last_block['epoch']
+          and block.prev_hash != self.last_block['hash']):
+            self.logger.info(f'({block.epoch}/{block.slot}) block.prev_hash ({block.prev_hash}) != last_block["hash"] ({self.last_block["hash"]}). Performing rollback...')
             return self.STATUS_ROLLBACK_REQUIRED
 
         self.last_block = {
-            'epoch': block['epoch'],
-            'hash': block['hash']
+            'epoch': block.epoch,
+            'hash': block.hash
         }
 
-        block_have_txs = bool(block['txs'])
+        block_have_txs = bool(block.txs)
         self.blocks_to_store.append(block)
         self.db.auto_commit(False)
         try:
@@ -100,15 +100,15 @@ class Scheduler:
                     await self.db.store_block_txs(block)
         
                 await self.db.store_block(self.blocks_to_store)
-                await self.db.update_best_blockNum(block['height'])
+                await self.db.update_best_blockNum(block.height)
                 self.blocks_to_store = []
-                self.db.commit()
+                self.db.conn.commit()
         except Exception as e:
-            self.db.rollback()
+            self.db.conn.rollback()
             raise
         finally:
-            if is_flush_cache or (block['height'] % LOG_BLOCK_PARSED_THRESHOLD == 0):
-                self.logger.info(f'block parsed: {block["hash"]} {block["epoch"]} {block["slot"]} {block["height"]}')
+            if is_flush_cache or (block.height % LOG_BLOCK_PARSED_THRESHOLD == 0):
+                self.logger.info(f'block parsed: {block.hash} {block.epoch} {block.slot} {block.height}')
 
         return self.BLOCK_STATUS_PROCESSED
 

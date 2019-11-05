@@ -6,14 +6,14 @@ SLOTS_IN_EPOCH = 21600
 
 class Block:
 
-    def __init__(self, hash, slot, epoch, height, txs, is_EBB, prev_hash):
-        self.hash = hash
-        self.prev_hash = prev_hash
-        self.slot = slot
-        self.epoch = epoch
-        self.height = height
-        self.txs = txs
-        self.is_EBB = is_EBB
+    def __init__(self, **kwargs):
+        self.hash = kwargs['hash']
+        self.prev_hash = kwargs['prev_hash']
+        self.slot = kwargs['slot']
+        self.epoch = kwargs['epoch']
+        self.height = kwargs['height']
+        self.txs = kwargs['txs']
+        self.is_EBB = kwargs['is_EBB']
 
     def serialize(self):
         return {
@@ -41,7 +41,9 @@ class Block:
         chain_difficulty,  = consensus[2]
         txs = body[0]
         upd1, upd2 = body[3]
-        blockTime = datetime.utcfromtimestamp(network_start_time + (epoch * SLOTS_IN_EPOCH + slot) * 20) * 1000
+        print('network_start_time', network_start_time)
+        print('epoch', epoch, 'SLOTS_IN_EPOCH', SLOTS_IN_EPOCH, 'slot', slot)
+        block_time = datetime.utcfromtimestamp(network_start_time + (epoch * SLOTS_IN_EPOCH + slot) * 20)
 
         return {
           'slot': slot,
@@ -50,7 +52,7 @@ class Block:
           'upd': [upd1, upd2] if (len(upd1) or len(upd2)) else None,
           'height': chain_difficulty,
           'txs': [utils.convert_raw_tx_to_obj(tx, {
-              'txTime': blockTime,
+              'txTime': block_time,
               'txOrdinal': index,
               'blockNum': chain_difficulty,
               'block_hash': block_hash,
@@ -77,7 +79,9 @@ class Block:
         else:
             raise Exception(f'unexpected block type: {block_type}')
 
-        return Block(block_data)
+        print('block_data', block_data)
+
+        return Block(**block_data)
 
     @staticmethod
     def from_CBOR(data: bytes, handle_regular_block: int):

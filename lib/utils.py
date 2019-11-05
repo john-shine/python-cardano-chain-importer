@@ -136,7 +136,7 @@ def convert_raw_tx_to_obj(tx: list, extraData: dict):
 
 
 def header_to_id(header, tx_type: int):
-    header_data = cbor.loads([tx_type, header])
+    header_data = cbor.dumps([tx_type, header])
     return blake2b(header_data, digest_size=32).hexdigest()
 
 
