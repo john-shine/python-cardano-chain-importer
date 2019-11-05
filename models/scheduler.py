@@ -48,28 +48,24 @@ class Scheduler:
         # reset scheduler state
         self.blocks_to_store = []
         self.last_block = {}
-        db_conn = self.db.get_conn()
+        self.db.auto_commit(False)
         try:
-            await db_conn.query('BEGIN')
             # Recover database state to newest actual block.
             best_blockNum = await self.db.get_best_blockNum()
             height = best_blockNum['height']
             roll_back_to_height = height - self.rollback_blocks_count
             self.logger.info(f'current DB height at rollback time: {height}. rollback to: {roll_back_to_height}')
-            await self.reset_to_block_height(roll_back_to_height)
+            await self.db.rollback_transactions(roll_back_to_height)
+            await self.db.rollback_utxo_backup(roll_back_to_height)
+            await self.db.rollback_block_history(roll_back_to_height)
+            await self.db.update_best_blockNum(roll_back_to_height)
             best_blockNum = await self.db.get_best_blockNum()
             epoch, block_hash = itemgetter('epoch', 'hash')(best_blockNum)
             self.last_block = {'epoch': epoch, 'hash': block_hash}
-            await db_conn.query('COMMIT')
+            self.db.commit()
         except Exception as e:
-            await db_conn.query('ROLLBACK')
+            self.db.rollback()
             raise
-
-    async def reset_to_block_height(self, block_height: int):
-        await self.db.rollback_transactions(block_height)
-        await self.db.rollback_utxo_backup(block_height)
-        await self.db.rollback_block_history(block_height)
-        await self.db.update_best_blockNum(block_height)
 
     async def process_epoch(self, epoch_id: int, height: int):
         self.logger.info(f'process epoch of id: {epoch_id}, {height}')
@@ -85,8 +81,6 @@ class Scheduler:
         return self.process_block(block, is_flush_cache)
 
     async def process_block(self, block, is_flush_cache=False):
-        db_conn = self.db.get_conn()
-
         if (self.last_block and block['epoch'] == self.last_block['epoch']
           and block['prevHash'] != self.last_block['hash']):
             self.logger.info(f'({block["epoch"]}/{block["slot"]}) block["prevHash"] ({block["prevHash"]}) != last_block["hash"] ({self.last_block["hash"]}). Performing rollback...')
@@ -99,18 +93,18 @@ class Scheduler:
 
         block_have_txs = bool(block['txs'])
         self.blocks_to_store.append(block)
+        self.db.auto_commit(False)
         try:
             if (len(self.blocks_to_store) > BLOCKS_CACHE_SIZE or block_have_txs or is_flush_cache):
-                await db_conn.query('BEGIN')
                 if block_have_txs:
                     await self.db.store_block_txs(block)
         
                 await self.db.store_block(self.blocks_to_store)
                 await self.db.update_best_blockNum(block['height'])
                 self.blocks_to_store = []
-                await db_conn.query('COMMIT')
+                self.db.commit()
         except Exception as e:
-            await db_conn.query('ROLLBACK')
+            self.db.rollback()
             raise
         finally:
             if is_flush_cache or (block['height'] % LOG_BLOCK_PARSED_THRESHOLD == 0):
@@ -120,7 +114,7 @@ class Scheduler:
 
     async def check_tip(self):
         self.logger.info('checking for new blocks.')
-        # local state
+        self.db.auto_commit(True)
         best_blockNum = await self.db.get_best_blockNum()
         height, epoch, slot = itemgetter('height', 'epoch', 'slot')(best_blockNum)
 

@@ -11,13 +11,21 @@ from psycopg2.extras import RealDictCursor, execute_values
 class DB:
 
     def __init__(self):
-        self._conn = None
+        self._cursor = None
+        self._connect = None
         self.logger = get_logger('DB')
 
     @property
     def conn(self):
-        if not self._conn:
-            self._conn = psycopg2.connect(
+        if not self._cursor:
+            self._cursor = self.connect.cursor(cursor_factory=RealDictCursor)
+
+        return self._cursor
+
+    @property
+    def connect(self):
+        if not self._connect:
+            self._connect = psycopg2.connect(
                 dbname=config['db']['database'],
                 user=config['db']['user'],
                 password=config['db']['password'],
@@ -25,9 +33,12 @@ class DB:
                 port=config['db']['port'],
                 connect_timeout=config['db']['timeout']
             )
-            self._conn.autocommit = True
+            self._connect.autocommit = True
 
-        return self._conn.cursor(cursor_factory=RealDictCursor)
+        return self._connect
+
+    def auto_commit(self, is_auto=True):
+        self.connect.autocommit = is_auto
 
     def close(self):
         if self._conn:
