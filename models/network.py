@@ -1,6 +1,5 @@
 from config import config
 from urllib.parse import urljoin
-from lib.utils import get_network_config
 
 
 class Network:

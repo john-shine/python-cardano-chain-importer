@@ -8,7 +8,7 @@ from hashlib import blake2b, sha3_256
 
 def generate_utxo_hash(address):
     data = base58.b58decode(address)
-    return blake2b(data).hexdigest()
+    return blake2b(data, digest_size=32).hexdigest()
 
 
 def get_utxo_id(input):
@@ -36,6 +36,9 @@ def struct_utxo(receiver, amount, utxo_hash, tx_index=0, block_num=0):
 
 
 def fix_long_address(address: str):
+    if isinstance(address, bytes):
+        address = address.decode()
+
     if address and len(address) > 1000:
         return f'{address[0:497]}...{address[len(address) - 500:500]}'
     else:
