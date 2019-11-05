@@ -46,7 +46,7 @@ class DB:
             self._connect.close()
 
     async def store_utxos(self, utxos):
-        sql = 'insert into utxos (utxo_id, tx_hash, tx_index, receiver, amount, block_num) values %s'
+        sql = 'insert into utxos (utxo_id, tx_hash, tx_index, receiver, amount, block_num) values %s ON CONFLICT (utxo_id) DO UPDATE set tx_hash=EXCLUDED.tx_hash, tx_index=EXCLUDED.tx_index, receiver=EXCLUDED.receiver, amount=EXCLUDED.amount, block_num=EXCLUDED.block_num'
         self.logger.info('store utxos: %s', len(utxos))
         with self.conn as cursor:
             execute_values(cursor, sql, utxos, "(%(utxo_id)s, %(tx_hash)s, %(tx_index)s, %(receiver)s, %(amount)s, %(block_num)s)")
@@ -155,10 +155,10 @@ class DB:
           'address': utils.fix_long_address(address),
         } for address in addresses]
 
-        query = 'insert tx_addresses on conflict set ...'
+        query = 'insert into tx_addresses (tx_hash, address) VALUES %s on conflict (tx_hash, address) DO UPDATE set tx_hash=EXCLUDED.tx_hash, address=EXCLUDED.address'
         try:
             with self.conn as cursor:
-                cursor.execute(query)
+                execute_values(cursor, query, db_fields, "(%(tx_hash)s, %(address)s)")
         except Exception as e:
             self.logger.exception('addresses for %s already stored', tx_id)
             return False
@@ -183,7 +183,7 @@ class DB:
         if not utxo_ids:
             return False
         
-        sql = 'WITH moved_utxos AS (DELETE FROM utxos WHERE utxo_id IN (%s)) '\
+        sql = 'WITH moved_utxos AS (DELETE FROM utxos WHERE utxo_id IN (%s) RETURNING *) '\
               '  INSERT INTO utxos_backup '\
               '  (utxo_id, tx_hash, tx_index, receiver, amount, block_num, deleted_block_num) '\
               '  (SELECT utxo_id, tx_hash, tx_index, receiver, amount, block_num, %s AS deleted_block_num FROM moved_utxos)'
@@ -239,7 +239,7 @@ class DB:
         inputs, outputs, tx_id, blockNum, block_hash = tx['inputs'], tx['outputs'], tx['id'], tx['blockNum'], tx['block_hash']
         input_utxos = None
         self.logger.info('store tx: %s', tx_utxos)
-        tx_status = tx['status'] if tx['status'] else TX_SUCCESS_STATUS
+        tx_status = tx['status'] if tx.get('status') else TX_SUCCESS_STATUS
         if not tx_utxos:
           input_utxo_ids = []
           for _input in inputs:
@@ -269,7 +269,7 @@ class DB:
             'last_update': datetime.now()
         }
 
-        sql = 'INSERT INTO txs ({}) VALUSE ({}) '\
+        sql = 'INSERT INTO txs ({}) VALUES ({}) '\
               'ON CONFLICT (hash) DO UPDATE '\
               'SET block_num=EXCLUDED.block_num, '\
               '    block_hash=EXCLUDED.block_hash, '\
@@ -283,7 +283,7 @@ class DB:
 
         self.logger.info('insert into txs: %s', sql)
         with self.conn as cursor:
-            cursor.execute(sql, (tx_db_fields.values(), ))
+            cursor.execute(sql, tuple(tx_db_fields.values()))
 
         await self.store_tx_addresses(
             tx_id,
