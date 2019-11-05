@@ -118,13 +118,10 @@ class DB:
         if not block:
             return False
 
-        sql = 'INSERT INTO blocks ({}) VALUES ({})'.format(
-            ', '.join(block.keys()), 
-            ', '.join(['%s'] * len(block))
-        )
+        sql = 'INSERT INTO blocks (block_hash, block_height, epoch, slot) VALUES (%(block_hash)s, %(block_height)s, %(epoch)s, %(slot)s)'
         try:
             with self.conn as cursor:
-                await cursor.execute(sql, block.values())
+                await cursor.execute(sql, vars(block))
         except Exception as e:
             self.logger.exception('error occur on block: %s', block)
             return False
@@ -135,18 +132,17 @@ class DB:
         if not blocks:
             return False
 
-        sql = 'INSERT INTO blocks VALUES '
-        blocks_data = []
-        for block in blocks:
-            sql += '({}), '.format(
-                ', '.join(['%s'] * len(block))
-            )
-            blocks_data.append(block.values())
-        sql = sql.rstrip(', ')
+        sql = 'INSERT INTO blocks (block_hash, block_height, epoch, slot) VALUES %s'
+        blocks_data = [vars(block) for block in blocks]
 
         try:
             with self.conn as cursor:
-                await cursor.execute(sql, blocks_data)
+                await execute_values(
+                    cursor, 
+                    sql, 
+                    blocks_data, 
+                    "(%(block_hash)s, %(block_height)s, %(epoch)s, %(slot)s)"
+                )
         except Exception as e:
             self.logger.exception('error occur on blocks: %s', blocks)
             return False
@@ -293,7 +289,7 @@ class DB:
             list(set(input_addresses + output_addresses)),
         )
 
-    async def store_block_txs(self, block):
+    async def store_block_txs(self, block: dict):
         block_hash, epoch, slot, txs = block['hash'], block['epoch'], block['slot'], block['txs']
         self.logger.info(f"store block txs ({epoch}/{slot}, {block_hash}, {block['height']})")
         new_utxos = utils.get_txs_utxos(txs)

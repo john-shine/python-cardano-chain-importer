@@ -92,14 +92,19 @@ class Scheduler:
         }
 
         block_have_txs = bool(block.txs)
-        self.blocks_to_store.append(block)
+        self.blocks_to_store.append({
+            'block_hash': block.hash,
+            'block_height': block.height,
+            'epoch': block.epoch,
+            'slot': block.slot
+        })
         self.db.auto_commit(False)
         try:
             if (len(self.blocks_to_store) > BLOCKS_CACHE_SIZE or block_have_txs or is_flush_cache):
                 if block_have_txs:
-                    await self.db.store_block_txs(block)
+                    await self.db.store_block_txs(vars(block))
         
-                await self.db.store_block(self.blocks_to_store)
+                await self.db.store_blocks(self.blocks_to_store)
                 await self.db.update_best_blockNum(block.height)
                 self.blocks_to_store = []
                 self.db.conn.commit()
