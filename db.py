@@ -294,7 +294,7 @@ class DB:
         block_hash, epoch, slot, txs = itemgetter('hash', 'epoch', 'slot', 'txs')(block)
         self.logger.info('store txs for block height: %s', block['height'])
         txs_utxos = utils.get_txs_utxos(txs)
-        block_utxos, required_inputs = [], []
+        block_utxos, required_utxo_ids = [], []
         for tx in txs:
             for inp in tx['inputs']:
                 utxo_id = utils.get_utxo_id(inp)
@@ -309,9 +309,8 @@ class DB:
                     })
                     del txs_utxos[utxo_id]
                 else:
-                    required_inputs.append(inp)
+                    required_utxo_ids.append(utxo_id)
 
-        required_utxo_ids = [utils.get_utxo_id(inp) for inp in required_inputs]
         self.logger.info('store block txs required utxo: %s', required_utxo_ids)
         available_utxos = await self.get_utxos(required_utxo_ids)
         all_utxo_map = {}
