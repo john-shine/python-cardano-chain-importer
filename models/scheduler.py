@@ -1,6 +1,7 @@
 import asyncio
 from time import time
 from db import DB
+from lib import utils
 from operator import itemgetter
 from lib.logger import get_logger
 from models.http_bridge import HttpBridge
@@ -79,9 +80,50 @@ class Scheduler:
         })
 
         try:
-            block_have_txs = bool(block.txs)
-            if block_have_txs:
-                await self.db.store_block_txs(vars(block))
+            if block.txs:
+                block_dict = vars(block)
+                block_hash, epoch, slot, txs = itemgetter('hash', 'epoch', 'slot', 'txs')(block_dict)
+                self.logger.info('store txs for block height: %s', block_dict['height'])
+                txs_utxos = utils.get_txs_utxos(txs)
+                block_utxos, required_utxo_ids = [], []
+                for tx in txs:
+                    for inp in tx['inputs']:
+                        utxo_id = utils.get_utxo_id(inp)
+                        local_utxo = txs_utxos.get(utxo_id)
+                        if local_utxo:
+                            block_utxos.append({
+                                'id': local_utxo['utxo_id'],
+                                'address': local_utxo['receiver'],
+                                'amount': local_utxo['amount'],
+                                'txHash': local_utxo['tx_hash'],
+                                'index': local_utxo['tx_index'],
+                            })
+                            del txs_utxos[utxo_id]
+                        else:
+                            required_utxo_ids.append(utxo_id)
+
+                self.logger.info('store block txs required utxo: %s', required_utxo_ids)
+                available_utxos = await self.db.get_utxos(required_utxo_ids)
+                all_utxo_map = {}
+                for utxo in available_utxos + block_utxos:
+                    all_utxo_map[utxo['id']] = utxo
+
+                for index, tx in enumerate(txs):
+                    utxos = []
+                    for inp in tx['inputs']:
+                        utxo_id = utils.get_utxo_id(inp)
+                        utxo = all_utxo_map.get(utxo_id)
+                        if utxo:
+                            utxos.append(utxo)
+
+                    if len(utxos) != len(tx['inputs']):
+                        raise Exception(f'failed to query input utxos for tx: {tx["id"]} in db or block.')
+
+                    self.logger.info('store block txs: %s', tx['id'])
+                    await self.db.store_tx(tx, utxos)
+
+                await self.db.store_utxos(list(txs_utxos.values()))
+                await self.db.backup_and_remove_utxos(required_utxo_ids, block_dict['height'])
 
             if len(self.blocks_to_store) > BLOCKS_CACHE_SIZE or block_have_txs or is_flush_cache:
                 await self.db.store_blocks(self.blocks_to_store)

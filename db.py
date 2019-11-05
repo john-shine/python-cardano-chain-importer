@@ -134,7 +134,6 @@ class DB:
             return False
 
         sql = 'INSERT INTO blocks (block_hash, block_height, epoch, slot) VALUES %s'
-
         try:
             with self.conn as cursor:
                 execute_values(
@@ -164,20 +163,6 @@ class DB:
             return False
 
         return True
-
-    async def store_outputs(self, tx: dict):
-        tx_id, outputs, blockNum = tx['id'], tx['outputs'], tx['blockNum']
-        utxos_data = []
-        for output, index in outputs:
-            utxos_data.append(utils.struct_utxo(
-                utils.fix_long_address(output.address),
-                output.value, 
-                tx_id, 
-                index, 
-                blockNum
-            ))
-
-        await self.store_utxos(utxos_data)
 
     async def backup_and_remove_utxos(self, utxo_ids: list, deleted_block_num: int):
         if not utxo_ids:
@@ -235,32 +220,32 @@ class DB:
 
         return count['cnt'] > 0
 
-    async def store_tx(self, tx: dict, tx_utxos: dict):
-        inputs, outputs, tx_id, blockNum, block_hash = tx['inputs'], tx['outputs'], tx['id'], tx['blockNum'], tx['block_hash']
+    def convert_tx(self, tx: dict, tx_utxos: dict):
+        inputs, outputs, tx_id, block_num, block_hash = tx['inputs'], tx['outputs'], tx['id'], tx['blockNum'], tx['block_hash']
         input_utxos = None
         self.logger.info('store tx: %s', tx_utxos)
         tx_status = tx['status'] if tx.get('status') else TX_SUCCESS_STATUS
         if not tx_utxos:
-          input_utxo_ids = []
-          for _input in inputs:
-              input_utxo_ids.append(utils.get_utxo_id())
+            input_utxo_ids = []
+            for _input in inputs:
+                input_utxo_ids.append(utils.get_utxo_id())
 
-          input_utxos = await self.get_utxos(input_utxo_ids)
+            input_utxos = await self.get_utxos(input_utxo_ids)
         else:
-          input_utxos = tx_utxos
+            input_utxos = tx_utxos
 
         input_addresses = [inp['address'] for inp in input_utxos]
         output_addresses = [utils.fix_long_address(out['address']) for out in outputs]
         input_ammounts = [int(item['amount']) for item in input_utxos]
         output_ammounts = [int(item['value']) for item in outputs]
-        tx_db_fields = {
+        return {
             'hash': tx_id,
             'inputs': json.dumps(input_utxos),
             'inputs_address': input_addresses,
             'inputs_amount': input_ammounts,
             'outputs_address': output_addresses,
             'outputs_amount': output_ammounts,
-            'block_num': blockNum,
+            'block_num': block_num,
             'block_hash': block_hash,
             'tx_state': tx_status,
             'tx_body': tx['txBody'],
@@ -268,6 +253,9 @@ class DB:
             'time': tx['txTime'],
             'last_update': datetime.now()
         }
+
+    async def store_tx(self, tx: dict, tx_utxos: dict):
+        tx_db_fields = self.convert_tx(tx, tx_utxos)
 
         sql = 'INSERT INTO txs ({}) VALUES ({}) '\
               'ON CONFLICT (hash) DO UPDATE '\
@@ -289,47 +277,3 @@ class DB:
             tx_id,
             list(set(input_addresses + output_addresses)),
         )
-
-    async def store_block_txs(self, block: dict):
-        block_hash, epoch, slot, txs = itemgetter('hash', 'epoch', 'slot', 'txs')(block)
-        self.logger.info('store txs for block height: %s', block['height'])
-        txs_utxos = utils.get_txs_utxos(txs)
-        block_utxos, required_utxo_ids = [], []
-        for tx in txs:
-            for inp in tx['inputs']:
-                utxo_id = utils.get_utxo_id(inp)
-                local_utxo = txs_utxos.get(utxo_id)
-                if local_utxo:
-                    block_utxos.append({
-                        'id': local_utxo['utxo_id'],
-                        'address': local_utxo['receiver'],
-                        'amount': local_utxo['amount'],
-                        'txHash': local_utxo['tx_hash'],
-                        'index': local_utxo['tx_index'],
-                    })
-                    del txs_utxos[utxo_id]
-                else:
-                    required_utxo_ids.append(utxo_id)
-
-        self.logger.info('store block txs required utxo: %s', required_utxo_ids)
-        available_utxos = await self.get_utxos(required_utxo_ids)
-        all_utxo_map = {}
-        for utxo in available_utxos + block_utxos:
-            all_utxo_map[utxo['id']] = utxo
-
-        for index, tx in enumerate(txs):
-            utxos = []
-            for inp in tx['inputs']:
-                utxo_id = utils.get_utxo_id(inp)
-                utxo = all_utxo_map.get(utxo_id)
-                if utxo:
-                    utxos.append(utxo)
-
-            if len(utxos) != len(tx['inputs']):
-                raise Exception(f'failed to query input utxos for tx: {tx["id"]} in db or block.')
-
-            self.logger.info('store block txs: %s', tx['id'])
-            await self.store_tx(tx, utxos)
-
-        await self.store_utxos(list(txs_utxos.values()))
-        await self.backup_and_remove_utxos(required_utxo_ids, block['height'])
