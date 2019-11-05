@@ -1,8 +1,3 @@
-# import cbor from 'cbor'
-# import borc from 'borc'
-# import bs58 from 'bs58'
-# import blake from 'blakejs'
-
 import base58
 import base64
 import binascii
@@ -12,8 +7,8 @@ from hashlib import blake2b, sha3_256
 
 
 def generate_utxo_hash(address):
-  data = base58.b58decode(address)
-  return blake2b(data).hexdigest()
+    data = base58.b58decode(address)
+    return blake2b(data).hexdigest()
 
 
 def get_utxo_id(input):

@@ -1,10 +1,3 @@
-# // @flow
-# import { helpers } from 'inversify-vanillajs-helpers'
-
-# import { RawDataParser } from '../../interfaces'
-# import SERVICE_IDENTIFIER from '../../constants/identifiers'
-# import { Block, Epoch } from '../../blockchain'
-# import type { NetworkConfig } from '../../interfaces'
 from lib.logger import get_logger
 from models.block import Block
 from models.epoch import Epoch

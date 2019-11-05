@@ -1,10 +1,3 @@
-# import { helpers } from 'inversify-vanillajs-helpers'
-# import config from 'config'
-
-# import urljoin from 'url-join'
-
-# import utils from '../utils'
-# import type { NetworkConfig } from '../interfaces/network-config'
 from config import config
 from urllib.parse import urljoin
 from lib.utils import get_network_config

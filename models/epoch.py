@@ -1,5 +1,3 @@
-# // @flow
-# import Block from './block'
 from .block import Block
 
 class Epoch:

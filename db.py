@@ -1,11 +1,12 @@
 from lib.logger import get_logger
 from lib import utils
 import json
-from constants.transaction import TX_SUCCESS_STATUS, TX_PENDING_STATUS
 from datetime import datetime
 import psycopg2
 from config import config
+from operator import itemgetter
 from psycopg2.extras import RealDictCursor, execute_values
+from constants.transaction import TX_SUCCESS_STATUS, TX_PENDING_STATUS
 
 
 class DB:
@@ -290,26 +291,25 @@ class DB:
         )
 
     async def store_block_txs(self, block: dict):
-        block_hash, epoch, slot, txs = block['hash'], block['epoch'], block['slot'], block['txs']
-        self.logger.info(f"store block txs ({epoch}/{slot}, {block_hash}, {block['height']})")
-        new_utxos = utils.get_txs_utxos(txs)
-        block_utxos = []
-        required_inputs = []
+        block_hash, epoch, slot, txs = itemgetter('hash', 'epoch', 'slot', 'txs')(block)
+        self.logger.info('store txs for block height: %s', block['height'])
+        txs_utxos = utils.get_txs_utxos(txs)
+        block_utxos, required_inputs = [], []
         for tx in txs:
             for inp in tx['inputs']:
                 utxo_id = utils.get_utxo_id(inp)
-                local_utxo = new_utxos.get(utxo_id)
-                if not local_utxo:
-                    required_inputs.append(inp)
-                else:
+                local_utxo = txs_utxos.get(utxo_id)
+                if local_utxo:
                     block_utxos.append({
-                      'id': local_utxo.utxo_id,
-                      'address': local_utxo.receiver,
-                      'amount': local_utxo.amount,
-                      'txHash': local_utxo.tx_hash,
-                      'index': local_utxo.tx_index,
+                        'id': local_utxo['utxo_id'],
+                        'address': local_utxo['receiver'],
+                        'amount': local_utxo['amount'],
+                        'txHash': local_utxo['tx_hash'],
+                        'index': local_utxo['tx_index'],
                     })
-                    del new_utxos[utxo_id]
+                    del txs_utxos[utxo_id]
+                else:
+                    required_inputs.append(inp)
 
         required_utxo_ids = [utils.get_utxo_id(inp) for inp in required_inputs]
         self.logger.info('store block txs required utxo: %s', required_utxo_ids)
@@ -318,20 +318,19 @@ class DB:
         for utxo in available_utxos + block_utxos:
             all_utxo_map[utxo['id']] = utxo
 
-        for index in range(len(txs)):
-            tx = txs[index]
+        for index, tx in enumerate(txs):
             utxos = []
             for inp in tx['inputs']:
                 utxo_id = utils.get_utxo_id(inp)
-                if all_utxo_map.get(utxo_id):
-                    utxos.append(all_utxo_map.get(utxo_id))
+                utxo = all_utxo_map.get(utxo_id)
+                if utxo:
+                    utxos.append(utxo)
 
             if len(utxos) != len(tx['inputs']):
-                raise Exception(f'failed to query input utxos for tx {tx["id"]} for inputs: {json.dumps(tx["inputs"])} all utxos: {json.dumps(all_utxo_map)}'
-                )
+                raise Exception(f'failed to query input utxos for tx: {tx["id"]} in db or block.')
 
             self.logger.info('store block txs: %s', tx['id'])
             await self.store_tx(tx, utxos)
 
-        await self.store_utxos(new_utxos.values())
+        await self.store_utxos(list(txs_utxos.values()))
         await self.backup_and_remove_utxos(required_utxo_ids, block['height'])
