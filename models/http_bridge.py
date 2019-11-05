@@ -79,12 +79,12 @@ class HttpBridge:
         return resp
 
     async def get_block_by_height(self, height: int):
-        resp = await self.get_json(f'height/{height}')
-        return self.parser.parse_block(resp)
+        resp = await self.get(f'height/{height}')
+        return self.parser.parse_block(resp.body)
 
     async def get_parsed_epoch_by_id(self, epoch_id: int, is_omit_ebb=False):
-        resp = await self.get_json(f'epoch/{epoch_id}')
-        blocks_iterator = self.parser.parse_epoch(resp, {'omitEbb': is_omit_ebb})
+        resp = await self.get(f'epoch/{epoch_id}')
+        blocks_iterator = self.parser.parse_epoch(resp.body, {'omitEbb': is_omit_ebb})
 
         return blocks_iterator
 

@@ -5,34 +5,34 @@ from .block import Block
 class Epoch:
 
     def __init__(self, data: any, network_start_time: int):
-        # stip protocol magic
-        self.data = data.buffer.slice(data.byteOffset,
-          data.byteOffset + data.byteLength)
+        self.data = data
         self.network_start_time = network_start_time
 
     @staticmethod
-    def from_CBOR(cls, data: bytes, network_start_time: int):
-        return cls(data, network_start_time)
+    def from_CBOR(data: bytes, network_start_time: int):
+        return Epoch(data, network_start_time)
 
     @staticmethod
-    def get_blockData_by_offset(self, blocks_list, offset: int):
-        blockSize = DataView(blocks_list, offset).getUint32(0, False)
-        blob = blocks_list.slice(offset + 4, offset + blockSize + 4)
-        return [blockSize, Uint8Array(blob)]
+    def get_blockData_by_offset(blocks_list, offset: int):
+        print('offset', offset)
+        block_size = int.from_bytes(blocks_list[offset:offset + 4], byteorder='big')
+        print('block_size', block_size)
+        blob = blocks_list[offset + 4:offset + block_size + 4]
+        return block_size, blob
 
 
     def get_next_block(self, blocks_list: bytes, offset: int):
-        [blockSize, blob] = self.get_blockData_by_offset(blocks_list, offset)
-        block = Block.from_CBOR(bytes.fromhex(blob), self.network_start_time)
-        bytesToAllign = blockSize % 4
-        nextBlockOffset = blockSize + 4 \
+        block_size, blob = self.get_blockData_by_offset(blocks_list, offset)
+        block = Block.from_CBOR(blob, self.network_start_time)
+        bytesToAllign = block_size % 4
+        nextBlockOffset = block_size + 4 \
           + (bytesToAllign and (4 - bytesToAllign)) # 4 is block size field
-        return [block, offset + nextBlockOffset]
+        return block, offset + nextBlockOffset
 
 
     def get_blocks_iterator(self, options={}): 
-        blocks_list = self.data.slice(16) # header
-        nextBlock = lambda offset, number: self.get_next_block(blocks_list, offset)
+        blocks_list = self.data[16:] # header
+        nextBlock = lambda offset: self.get_next_block(blocks_list, offset)
         block = None
         offset = 0
         if options.get('omitEbb'):

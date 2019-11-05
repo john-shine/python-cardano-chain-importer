@@ -24,7 +24,7 @@ class Block:
         }
 
     @staticmethod 
-    def handle_epoch_boundary_block(cls, header):
+    def handle_epoch_boundary_block(header):
         [epoch, [chainDifficulty]] = header[3]
         return {
           'epoch': epoch,
@@ -35,7 +35,7 @@ class Block:
         }
 
     @staticmethod 
-    def handle_regular_block(cls, header, body: dict, blockHash: str, networkStartTime: int):
+    def handle_regular_block(header, body: dict, blockHash: str, networkStartTime: int):
         consensus = header[3]
         [epoch, slot] = consensus[0]
         [chainDifficulty] = consensus[2]
@@ -58,8 +58,9 @@ class Block:
         return res
 
     @staticmethod 
-    def parse_block(cls, blob: bytes, handleRegularBlock: int):
-        [type, [header, body]] = cbor.loads(blob)
+    def parse_block(blob: bytes, handleRegularBlock: int):
+        type, _ = cbor.loads(blob)
+        header, body = _
         hash = utils.header_to_id(header, type)
         common = {
           'hash': hash,
@@ -79,6 +80,6 @@ class Block:
         return Block(blockData)
 
     @staticmethod
-    def from_CBOR(cls, data: bytes, handleRegularBlock: int):
+    def from_CBOR(data: bytes, handleRegularBlock: int):
         block = Block.parse_block(data, handleRegularBlock)
         return block

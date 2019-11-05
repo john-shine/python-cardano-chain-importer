@@ -22,4 +22,4 @@ class Parser:
 
     def parse_epoch(self, data: bytes, options={}):
         epoch = Epoch.from_CBOR(data, self.network_start_time)
-        return epoch.getBlocksIterator(options)
+        return epoch.get_blocks_iterator(options)
