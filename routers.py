@@ -120,7 +120,7 @@ class Routers:
 
         async def store_tx_as_pending(self, tx):
             self.logger.debug('store tx as pending: %s', tx)
-            await self.db.store_tx(tx)
+            await self.db.save_txs(tx)
 
         async def validate_tx(self, tx_obj):
             try:
@@ -142,7 +142,7 @@ class Routers:
               raise Exception(f'length of inputs: {len(inputs)} not equal length of witnesses: {len(witnesses)}')
 
             tx_hashes = list(set([inp['txId'] for inp in inputs]))
-            full_outputs = await self.db.get_outputs_for_tx_hashes(tx_hashes)
+            full_outputs = await self.db.get_txs_by_hashes(tx_hashes)
             for inp, witness in zip(inputs, witnesses):
                 input_type, input_tx_id, input_idx = inp
                 witnessType, sign = witness

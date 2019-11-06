@@ -24,14 +24,14 @@ async def main():
         genesis_file = await http_bridge.get_genesis(genesis.genesis_hash)
         if genesis_file.get('nonAvvmBalances'):
             utxos = genesis.non_avvm_balances_to_utxos(genesis_file['nonAvvmBalances'])
-            await database.store_utxos(utxos)
+            await database.save_utxos(utxos)
 
         if genesis_file.get('avvmDistr'):
             utxos = genesis.avvm_distr_to_utxos(
                 genesis_file['avvmDistr'], 
                 genesis_file['protocolConsts']
             )
-            await database.store_utxos(utxos)
+            await database.save_utxos(utxos)
         logger.info('genesis data is loaded.')
     else:
         logger.info('genesis has already loaded.')

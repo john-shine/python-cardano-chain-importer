@@ -35,16 +35,16 @@ class Scheduler:
         self.last_block = {}
         try:
             # Recover database state to newest actual block.
-            best_blockNum = await self.db.get_best_blockNum()
-            height = best_blockNum['height']
+            best_block_num = await self.db.get_best_block_num()
+            height = best_block_num['height']
             roll_back_to_height = height - ROLLBACK_BLOCKS_COUNT
             self.logger.info(f'current DB height at rollback time: {height}. rollback to: {roll_back_to_height}')
-            await self.db.rollback_transactions(roll_back_to_height)
-            await self.db.rollback_utxo_backup(roll_back_to_height)
-            await self.db.rollback_block_history(roll_back_to_height)
-            await self.db.update_best_blockNum(roll_back_to_height)
-            best_blockNum = await self.db.get_best_blockNum()
-            epoch, block_hash = itemgetter('epoch', 'hash')(best_blockNum)
+            await self.db.rollback_txs_from_height(roll_back_to_height)
+            await self.db.rollback_utxos_backup(roll_back_to_height)
+            await self.db.rollback_blocks_from_height(roll_back_to_height)
+            await self.db.update_best_block_num(roll_back_to_height)
+            best_block_num = await self.db.get_best_block_num()
+            epoch, block_hash = itemgetter('epoch', 'hash')(best_block_num)
             self.last_block = {'epoch': epoch, 'hash': block_hash}
         except Exception as e:
             raise
@@ -103,7 +103,7 @@ class Scheduler:
                             required_utxo_ids.append(utxo_id)
 
                 self.logger.info('store block txs required utxo: %s', required_utxo_ids)
-                available_utxos = await self.db.get_utxos(required_utxo_ids)
+                available_utxos = await self.db.get_utxos_by_ids(required_utxo_ids)
                 all_utxo_map = {}
                 for utxo in available_utxos + block_utxos:
                     all_utxo_map[utxo['id']] = utxo
@@ -120,14 +120,14 @@ class Scheduler:
                         raise Exception(f'failed to query input utxos for tx: {tx["id"]} in db or block.')
 
                     self.logger.info('store block txs: %s', tx['id'])
-                    await self.db.store_tx(tx, utxos)
+                    await self.db.save_txs(tx, utxos)
 
-                await self.db.store_utxos(list(txs_utxos.values()))
-                await self.db.backup_and_remove_utxos(required_utxo_ids, block_dict['height'])
+                await self.db.save_utxos(list(txs_utxos.values()))
+                await self.db.remove_and_backup_utxos(required_utxo_ids, block_dict['height'])
 
             if len(self.blocks_to_store) > BLOCKS_CACHE_SIZE or block_have_txs or is_flush_cache:
-                await self.db.store_blocks(self.blocks_to_store)
-                await self.db.update_best_blockNum(block.height)
+                await self.db.save_blocks(self.blocks_to_store)
+                await self.db.update_best_block_num(block.height)
                 self.blocks_to_store = []
         except Exception as e:
             raise
@@ -139,8 +139,8 @@ class Scheduler:
 
     async def check_tip(self):
         self.logger.info('checking for new blocks.')
-        best_blockNum = await self.db.get_best_blockNum()
-        height, epoch, slot = itemgetter('height', 'epoch', 'slot')(best_blockNum)
+        best_block_num = await self.db.get_best_block_num()
+        height, epoch, slot = itemgetter('height', 'epoch', 'slot')(best_block_num)
 
         node_status = await self.http_bridge.get_status()
         packed_epochs, node_tip = itemgetter('packedEpochs', 'tip')(node_status)
